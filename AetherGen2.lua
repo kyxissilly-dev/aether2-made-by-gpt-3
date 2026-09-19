@@ -59,6 +59,10 @@ local TWEEN = {
     Reveal = TweenInfo.new(0.42, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
 }
 
+local SHADOW_IMAGE = "rbxassetid://1316045217"
+local SHADOW_SLICE_CENTER = Rect.new(64, 64, 192, 192)
+local SHADOW_SIZE_OFFSET = 24
+
 local function create(className, props)
     local object = Instance.new(className)
     for k, v in pairs(props or {}) do
@@ -976,15 +980,23 @@ function Window:Minimize(state)
             end
         end)
         tween(self.main, TWEEN.Move, { Size = UDim2.fromOffset(self.size.X, LAYOUT.TopbarHeight) })
-        tween(self.shadowFar, TWEEN.Move, { Size = UDim2.fromOffset(self.size.X + 20, LAYOUT.TopbarHeight + 20) })
-        tween(self.shadowNear, TWEEN.Move, { Size = UDim2.fromOffset(self.size.X + 8, LAYOUT.TopbarHeight + 8) })
+        tween(self.shadow, TWEEN.Move, {
+            Size = UDim2.fromOffset(
+                self.size.X + SHADOW_SIZE_OFFSET,
+                LAYOUT.TopbarHeight + SHADOW_SIZE_OFFSET
+            ),
+        })
         tween(self.minimizeLine, TWEEN.Hover, { Rotation = 90 })
     else
         self.body.Visible = true
         self.body.GroupTransparency = 1
         tween(self.main, TWEEN.Move, { Size = UDim2.fromOffset(self.size.X, self.size.Y) })
-        tween(self.shadowFar, TWEEN.Move, { Size = UDim2.fromOffset(self.size.X + 20, self.size.Y + 20) })
-        tween(self.shadowNear, TWEEN.Move, { Size = UDim2.fromOffset(self.size.X + 8, self.size.Y + 8) })
+        tween(self.shadow, TWEEN.Move, {
+            Size = UDim2.fromOffset(
+                self.size.X + SHADOW_SIZE_OFFSET,
+                self.size.Y + SHADOW_SIZE_OFFSET
+            ),
+        })
         tween(self.minimizeLine, TWEEN.Hover, { Rotation = 0 })
         task.delay(0.09, function()
             if self.main.Parent and not self.minimized then
@@ -1040,8 +1052,7 @@ function Window:Destroy()
 
     tween(self.main, TWEEN.Fast, { GroupTransparency = 1 })
     tween(self.scale, TWEEN.Fast, { Scale = 0.96 })
-    tween(self.shadowFar, TWEEN.Fast, { BackgroundTransparency = 1 })
-    tween(self.shadowNear, TWEEN.Fast, { BackgroundTransparency = 1 })
+    tween(self.shadow, TWEEN.Fast, { ImageTransparency = 1 })
 
     task.delay(0.17, function()
         if self.screen then
@@ -1085,29 +1096,22 @@ function Aether:CreateWindow(config)
         DisplayOrder = 1000,
     })
 
-    local shadowFar = create("Frame", {
+    -- 9-sliced soft shadow (replaces the old stacked rectangles)
+    local shadow = create("ImageLabel", {
         Parent = screen,
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0.5, 0, 0.5, 8),
-        Size = UDim2.fromOffset(width + 20, height + 20),
-        BackgroundColor3 = theme.Shadow,
-        BackgroundTransparency = 0.86,
+        Position = UDim2.new(0.5, 0, 0.5, 6),
+        Size = UDim2.fromOffset(width + SHADOW_SIZE_OFFSET, height + SHADOW_SIZE_OFFSET),
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
+        Image = SHADOW_IMAGE,
+        ImageColor3 = theme.Shadow,
+        ImageTransparency = 0.62,
+        ScaleType = Enum.ScaleType.Slice,
+        SliceCenter = SHADOW_SLICE_CENTER,
+        SliceScale = 1,
         ZIndex = 0,
     })
-    corner(shadowFar, 24)
-
-    local shadowNear = create("Frame", {
-        Parent = screen,
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0.5, 0, 0.5, 4),
-        Size = UDim2.fromOffset(width + 8, height + 8),
-        BackgroundColor3 = theme.Shadow,
-        BackgroundTransparency = 0.78,
-        BorderSizePixel = 0,
-        ZIndex = 0,
-    })
-    corner(shadowNear, 20)
 
     local main = create("CanvasGroup", {
         Parent = screen,
@@ -1134,13 +1138,26 @@ function Aether:CreateWindow(config)
         }),
     })
 
+    -- Dedicated clipping wrapper so the sidebar cannot escape the rounded silhouette.
+    -- This frame is a plain Frame with ClipsDescendants and a matching UICorner,
+    -- which reliably clips children even when they are CanvasGroups.
+    local clip = create("Frame", {
+        Parent = main,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        ZIndex = 2,
+    })
+    corner(clip, 18)
+
     local scale = create("UIScale", {
         Parent = main,
         Scale = 0.94,
     })
 
     local topbar = create("Frame", {
-        Parent = main,
+        Parent = clip,
         Size = UDim2.new(1, 0, 0, LAYOUT.TopbarHeight),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
@@ -1190,7 +1207,7 @@ function Aether:CreateWindow(config)
     })
 
     create("Frame", {
-        Parent = main,
+        Parent = clip,
         Position = UDim2.fromOffset(0, LAYOUT.TopbarHeight - 1),
         Size = UDim2.new(1, 0, 0, 1),
         BackgroundColor3 = theme.StrokeSoft,
@@ -1254,12 +1271,12 @@ function Aether:CreateWindow(config)
     closeHolder.Position = UDim2.fromScale(0.5, 0.5)
 
     local body = create("CanvasGroup", {
-        Parent = main,
+        Parent = clip,
         Position = UDim2.fromOffset(0, LAYOUT.TopbarHeight),
         Size = UDim2.new(1, 0, 1, -LAYOUT.TopbarHeight),
         BackgroundTransparency = 1,
         GroupTransparency = 0,
-        ZIndex = 2,
+        ZIndex = 3,
     })
 
     local sidebar = create("Frame", {
@@ -1417,8 +1434,7 @@ function Aether:CreateWindow(config)
         minimizeLine = minimizeLine,
         closeA = closeA,
         closeB = closeB,
-        shadowFar = shadowFar,
-        shadowNear = shadowNear,
+        shadow = shadow,
         theme = theme,
         size = Vector2.new(width, height),
         tabs = {},
@@ -1534,8 +1550,7 @@ function Aether:CreateWindow(config)
         local mouse = UserInputService:GetMouseLocation()
         local target = mouse + dragOffset
         main.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y))
-        shadowFar.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y + 8))
-        shadowNear.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y + 4))
+        shadow.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y + 6))
     end))
 
     if LocalPlayer then
@@ -1559,16 +1574,14 @@ function Aether:CreateWindow(config)
     end
 
     main.Position = UDim2.new(0.5, 0, 0.5, 10)
-    shadowFar.Position = UDim2.new(0.5, 0, 0.5, 18)
-    shadowNear.Position = UDim2.new(0.5, 0, 0.5, 14)
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 16)
 
     tween(main, TWEEN.Reveal, {
         GroupTransparency = 0,
         Position = UDim2.new(0.5, 0, 0.5, 0),
     })
     tween(scale, TWEEN.Reveal, { Scale = 1 })
-    tween(shadowFar, TWEEN.Reveal, { Position = UDim2.new(0.5, 0, 0.5, 8) })
-    tween(shadowNear, TWEEN.Reveal, { Position = UDim2.new(0.5, 0, 0.5, 4) })
+    tween(shadow, TWEEN.Reveal, { Position = UDim2.new(0.5, 0, 0.5, 6) })
 
     return window
 end
