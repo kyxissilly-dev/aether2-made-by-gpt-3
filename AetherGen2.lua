@@ -7,7 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.1.0"
+Aether.Version = "0.2.0"
 
 local DEFAULT = {
     Window = Color3.fromRGB(18, 18, 19),
@@ -29,6 +29,10 @@ local DEFAULT = {
     ToggleKnobOn = Color3.fromRGB(248, 248, 250),
     Danger = Color3.fromRGB(215, 115, 120),
     Shadow = Color3.fromRGB(20, 20, 20),
+    Gloss = Color3.fromRGB(255, 255, 255),
+    Glow = Color3.fromRGB(255, 255, 255),
+    Accent = Color3.fromRGB(236, 238, 246),
+    AccentStroke = Color3.fromRGB(255, 255, 255),
 }
 
 local LAYOUT = {
@@ -102,6 +106,60 @@ local function stroke(parent, color, transparency, thickness)
         Transparency = transparency or 0,
         Thickness = thickness or 1,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    })
+end
+
+local function glow(parent, color, blurRadius, transparency)
+    local ok, result = pcall(function()
+        return create("UIShadow", {
+            Parent = parent,
+            Color = color,
+            BlurRadius = UDim.new(0, blurRadius or 16),
+            Transparency = transparency or 1,
+            ZIndex = -1,
+        })
+    end)
+    return ok and result or nil
+end
+
+local function gloss(parent, radius, zIndex, transparency)
+    local sheen = create("Frame", {
+        Parent = parent,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = transparency or 0.9,
+        BorderSizePixel = 0,
+        ZIndex = zIndex or 3,
+    })
+    corner(sheen, radius)
+    create("UIGradient", {
+        Parent = sheen,
+        Rotation = 90,
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0),
+            NumberSequenceKeypoint.new(0.34, 0.18),
+            NumberSequenceKeypoint.new(0.58, 0.88),
+            NumberSequenceKeypoint.new(0.72, 1),
+            NumberSequenceKeypoint.new(1, 1),
+        }),
+    })
+    return sheen
+end
+
+local function strokeGradient(target, topColor, middleColor, bottomColor)
+    return create("UIGradient", {
+        Parent = target,
+        Rotation = 55,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, topColor),
+            ColorSequenceKeypoint.new(0.48, middleColor),
+            ColorSequenceKeypoint.new(1, bottomColor),
+        }),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.08),
+            NumberSequenceKeypoint.new(0.45, 0.26),
+            NumberSequenceKeypoint.new(1, 0.62),
+        }),
     })
 end
 
@@ -392,19 +450,23 @@ local function setTabVisual(tab, state, instant)
     local background
     local strokeTransparency
     local contentTransparency
+    local glowTransparency
 
     if state == "selected" then
         background = 0.4
         strokeTransparency = 0.5
         contentTransparency = 0
+        glowTransparency = 0.86
     elseif state == "hover" then
         background = 0.7
         strokeTransparency = 0.8
         contentTransparency = 0.3
+        glowTransparency = 0.94
     else
         background = 1
         strokeTransparency = 1
         contentTransparency = 0.5
+        glowTransparency = 1
     end
 
     local function apply(object, props)
@@ -420,6 +482,9 @@ local function setTabVisual(tab, state, instant)
     apply(tab.selector, { BackgroundTransparency = background })
     apply(tab.selectorStroke, { Transparency = strokeTransparency })
     apply(tab.selectorTitle, { TextTransparency = contentTransparency })
+    if tab.selectorGlow then
+        apply(tab.selectorGlow, { Transparency = glowTransparency })
+    end
     if tab.selectorIcon then
         if tab.selectorIcon:IsA("ImageLabel") then
             apply(tab.selectorIcon, { ImageTransparency = contentTransparency })
@@ -519,12 +584,21 @@ local function buildElementBase(tab, height, config)
         Parent = main,
         Rotation = 90,
         Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, window.theme.Element),
+            ColorSequenceKeypoint.new(0, window.theme.Element:Lerp(window.theme.Gloss, 0.10)),
+            ColorSequenceKeypoint.new(0.42, window.theme.Element),
             ColorSequenceKeypoint.new(1, window.theme.Element2),
         }),
     })
 
-    local bodyStroke = stroke(main, window.theme.Stroke, 0.78, 1)
+    local bodyStroke = stroke(main, window.theme.Stroke, 0.72, 1)
+    strokeGradient(
+        bodyStroke,
+        window.theme.Stroke:Lerp(window.theme.Gloss, 0.35),
+        window.theme.Stroke,
+        window.theme.StrokeSoft
+    )
+    local elementGlow = glow(main, window.theme.Glow, 12, 0.965)
+    local elementGloss = gloss(main, 12, 3, 0.91)
 
     local hover = create("Frame", {
         Parent = main,
@@ -588,18 +662,28 @@ local function buildElementBase(tab, height, config)
 
     registerConnection(window, main.MouseEnter:Connect(function()
         tween(hover, TWEEN.Hover, { BackgroundTransparency = 0.972 })
-        tween(bodyStroke, TWEEN.Hover, { Transparency = 0.62 })
+        tween(bodyStroke, TWEEN.Hover, { Transparency = 0.52 })
+        tween(elementGloss, TWEEN.Hover, { BackgroundTransparency = 0.855 })
+        if elementGlow then
+            tween(elementGlow, TWEEN.Hover, { Transparency = 0.90 })
+        end
     end))
 
     registerConnection(window, main.MouseLeave:Connect(function()
         tween(hover, TWEEN.Hover, { BackgroundTransparency = 1 })
-        tween(bodyStroke, TWEEN.Hover, { Transparency = 0.78 })
+        tween(bodyStroke, TWEEN.Hover, { Transparency = 0.72 })
+        tween(elementGloss, TWEEN.Hover, { BackgroundTransparency = 0.91 })
+        if elementGlow then
+            tween(elementGlow, TWEEN.Hover, { Transparency = 0.965 })
+        end
     end))
 
     return {
         main = main,
         stroke = bodyStroke,
         hover = hover,
+        glow = elementGlow,
+        gloss = elementGloss,
         content = content,
         title = title,
         interact = interact,
@@ -633,6 +717,14 @@ function Tab:CreateToggle(config)
     })
     corner(pill, 99)
     local pillStroke = stroke(pill, window.theme.Stroke, 0.62, 1)
+    strokeGradient(
+        pillStroke,
+        window.theme.Stroke:Lerp(window.theme.Gloss, 0.42),
+        window.theme.Stroke,
+        window.theme.StrokeSoft
+    )
+    local pillGlow = glow(pill, window.theme.Glow, 14, 0.985)
+    local pillGloss = gloss(pill, 99, 6, 0.93)
 
     local knob = create("Frame", {
         Parent = pill,
@@ -641,9 +733,11 @@ function Tab:CreateToggle(config)
         Size = UDim2.fromOffset(16, 16),
         BackgroundColor3 = window.theme.ToggleKnob,
         BorderSizePixel = 0,
-        ZIndex = 6,
+        ZIndex = 8,
     })
     corner(knob, 99)
+    local knobGlow = glow(knob, window.theme.Glow, 18, 0.98)
+    local knobGloss = gloss(knob, 99, 9, 0.68)
 
     local handle = setmetatable({
         window = window,
@@ -653,7 +747,11 @@ function Tab:CreateToggle(config)
         interact = base.interact,
         pill = pill,
         pillStroke = pillStroke,
+        pillGlow = pillGlow,
+        pillGloss = pillGloss,
         knob = knob,
+        knobGlow = knobGlow,
+        knobGloss = knobGloss,
         name = base.name,
         searchName = base.searchName,
         flag = flag,
@@ -686,16 +784,31 @@ function Toggle:_render(instant)
     local knobPosition = on and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
     local propsPill = { BackgroundColor3 = pillColor }
     local propsKnob = { Position = knobPosition, BackgroundColor3 = knobColor }
-    local propsStroke = { Transparency = on and 0.48 or 0.62 }
+    local propsStroke = {
+        Transparency = on and 0.34 or 0.62,
+        Color = on and self.window.theme.AccentStroke or self.window.theme.Stroke,
+    }
+    local pillGlowTransparency = on and 0.91 or 0.985
+    local knobGlowTransparency = on and 0.76 or 0.98
+    local pillGlossTransparency = on and 0.875 or 0.93
+    local knobGlossTransparency = on and 0.56 or 0.68
 
     if instant then
         for k, v in pairs(propsPill) do self.pill[k] = v end
         for k, v in pairs(propsKnob) do self.knob[k] = v end
         for k, v in pairs(propsStroke) do self.pillStroke[k] = v end
+        if self.pillGlow then self.pillGlow.Transparency = pillGlowTransparency end
+        if self.knobGlow then self.knobGlow.Transparency = knobGlowTransparency end
+        if self.pillGloss then self.pillGloss.BackgroundTransparency = pillGlossTransparency end
+        if self.knobGloss then self.knobGloss.BackgroundTransparency = knobGlossTransparency end
     else
         tween(self.pill, TWEEN.Hover, propsPill)
         tween(self.knob, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), propsKnob)
         tween(self.pillStroke, TWEEN.Hover, propsStroke)
+        if self.pillGlow then tween(self.pillGlow, TWEEN.Hover, { Transparency = pillGlowTransparency }) end
+        if self.knobGlow then tween(self.knobGlow, TWEEN.Hover, { Transparency = knobGlowTransparency }) end
+        if self.pillGloss then tween(self.pillGloss, TWEEN.Hover, { BackgroundTransparency = pillGlossTransparency }) end
+        if self.knobGloss then tween(self.knobGloss, TWEEN.Hover, { BackgroundTransparency = knobGlossTransparency }) end
     end
 end
 
@@ -835,7 +948,22 @@ function Window:CreateTab(config)
         AutoButtonColor = false,
     })
     corner(selector, LAYOUT.RowCorner)
+    create("UIGradient", {
+        Parent = selector,
+        Rotation = 90,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, self.theme.Tab:Lerp(self.theme.Gloss, 0.18)),
+            ColorSequenceKeypoint.new(1, self.theme.Tab:Lerp(Color3.new(0, 0, 0), 0.08)),
+        }),
+    })
     local selectorStroke = stroke(selector, self.theme.StrokeSoft, 1, 1)
+    strokeGradient(
+        selectorStroke,
+        self.theme.Stroke:Lerp(self.theme.Gloss, 0.45),
+        self.theme.Stroke,
+        self.theme.StrokeSoft
+    )
+    local selectorGlow = glow(selector, self.theme.Glow, 14, 1)
 
     local selectorContent = create("Frame", {
         Parent = selector,
@@ -930,6 +1058,7 @@ function Window:CreateTab(config)
         icon = icon,
         selector = selector,
         selectorStroke = selectorStroke,
+        selectorGlow = selectorGlow,
         selectorIcon = selectorIcon,
         selectorTitle = selectorTitle,
         page = page,
@@ -1230,6 +1359,8 @@ function Aether:CreateWindow(config)
         Padding = UDim.new(0, 5),
     })
 
+    local actionGlows = {}
+
     local function actionButton(order)
         local button = create("TextButton", {
             Parent = actionContainer,
@@ -1243,6 +1374,15 @@ function Aether:CreateWindow(config)
             ZIndex = 25,
         })
         corner(button, 9)
+        create("UIGradient", {
+            Parent = button,
+            Rotation = 90,
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, theme.Element:Lerp(theme.Gloss, 0.14)),
+                ColorSequenceKeypoint.new(1, theme.Element2),
+            }),
+        })
+        actionGlows[button] = glow(button, theme.Glow, 12, 1)
         return button
     end
 
@@ -1353,6 +1493,8 @@ function Aether:CreateWindow(config)
         ZIndex = 8,
     })
     corner(avatar, 99)
+    local avatarGlow = glow(avatar, theme.Glow, 12, 0.94)
+    local avatarGloss = gloss(avatar, 99, 9, 0.78)
 
     local profileName = create("TextLabel", {
         Parent = profileContainer,
@@ -1390,7 +1532,18 @@ function Aether:CreateWindow(config)
         ZIndex = 30,
     })
     corner(searchPill, 12)
+    create("UIGradient", {
+        Parent = searchPill,
+        Rotation = 90,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, theme.Element:Lerp(theme.Gloss, 0.12)),
+            ColorSequenceKeypoint.new(1, theme.Element2),
+        }),
+    })
     local searchPillStroke = stroke(searchPill, theme.StrokeSoft, 1, 1)
+    strokeGradient(searchPillStroke, theme.Stroke, theme.StrokeSoft, theme.Element2)
+    local searchPillGlow = glow(searchPill, theme.Glow, 16, 1)
+    local searchPillGloss = gloss(searchPill, 12, 30, 0.90)
 
     local searchBox = create("TextBox", {
         Parent = searchPill,
@@ -1421,10 +1574,14 @@ function Aether:CreateWindow(config)
         pageHost = pageHost,
         profile = profile,
         avatar = avatar,
+        avatarGlow = avatarGlow,
+        avatarGloss = avatarGloss,
         title = title,
         subtitle = subtitleLabel,
         searchPill = searchPill,
         searchPillStroke = searchPillStroke,
+        searchPillGlow = searchPillGlow,
+        searchPillGloss = searchPillGloss,
         searchBox = searchBox,
         searchButton = searchButton,
         minimizeButton = minimizeButton,
@@ -1453,7 +1610,11 @@ function Aether:CreateWindow(config)
     end
 
     local function hoverAction(button, enter)
-        tween(button, TWEEN.Hover, { BackgroundTransparency = enter and 0.25 or 1 })
+        tween(button, TWEEN.Hover, { BackgroundTransparency = enter and 0.18 or 1 })
+        local actionGlow = actionGlows[button]
+        if actionGlow then
+            tween(actionGlow, TWEEN.Hover, { Transparency = enter and 0.86 or 1 })
+        end
     end
 
     registerConnection(window, searchButton.MouseEnter:Connect(function() hoverAction(searchButton, true) end))
@@ -1488,7 +1649,9 @@ function Aether:CreateWindow(config)
             searchPillStroke.Transparency = 1
             searchBox.TextTransparency = 1
             tween(searchPill, TWEEN.Hover, { BackgroundTransparency = 0.1 })
-            tween(searchPillStroke, TWEEN.Hover, { Transparency = 0.62 })
+            tween(searchPillStroke, TWEEN.Hover, { Transparency = 0.48 })
+            if searchPillGlow then tween(searchPillGlow, TWEEN.Hover, { Transparency = 0.84 }) end
+            tween(searchPillGloss, TWEEN.Hover, { BackgroundTransparency = 0.84 })
             tween(searchBox, TWEEN.Hover, { TextTransparency = 0 })
             task.defer(function()
                 if searchBox.Parent then searchBox:CaptureFocus() end
@@ -1499,6 +1662,8 @@ function Aether:CreateWindow(config)
             window:_applySearch("")
             tween(searchPill, TWEEN.Fast, { BackgroundTransparency = 1 })
             tween(searchPillStroke, TWEEN.Fast, { Transparency = 1 })
+            if searchPillGlow then tween(searchPillGlow, TWEEN.Fast, { Transparency = 1 }) end
+            tween(searchPillGloss, TWEEN.Fast, { BackgroundTransparency = 1 })
             tween(searchBox, TWEEN.Fast, { TextTransparency = 1 })
             task.delay(0.16, function()
                 if searchPill.Parent and not window.searchOpen then
