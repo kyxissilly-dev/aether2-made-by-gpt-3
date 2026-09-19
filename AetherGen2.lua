@@ -7,32 +7,50 @@ local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.2.0"
+Aether.Version = "0.3.0"
 
 local DEFAULT = {
     Window = Color3.fromRGB(18, 18, 19),
     Window2 = Color3.fromRGB(22, 22, 23),
     Sidebar = Color3.fromRGB(17, 17, 18),
-    Element = Color3.fromRGB(31, 31, 33),
-    Element2 = Color3.fromRGB(27, 27, 29),
+
+    -- Rayfield Gen2 default element palette.
+    Element = Color3.fromRGB(30, 30, 30),
+    Element2 = Color3.fromRGB(35, 35, 35),
     ElementHover = Color3.fromRGB(255, 255, 255),
-    Tab = Color3.fromRGB(37, 37, 39),
-    Stroke = Color3.fromRGB(77, 77, 82),
+    ElementHoverStroke = Color3.fromRGB(50, 50, 50),
+    ElementTransparency = 0,
+    ElementStrokeTransparency = 0,
+    ElementStrokeHoverTransparency = 0,
+
+    -- Rayfield Gen2 sidebar tab palette.
+    Tab = Color3.fromRGB(50, 50, 50),
+    TabBottom = Color3.fromRGB(35, 35, 35),
+    TabStrokeTop = Color3.fromRGB(95, 95, 95),
+    TabStrokeBottom = Color3.fromRGB(50, 50, 50),
+
+    Stroke = Color3.fromRGB(35, 35, 35),
     StrokeSoft = Color3.fromRGB(62, 62, 67),
-    Text = Color3.fromRGB(242, 242, 244),
-    Secondary = Color3.fromRGB(157, 157, 164),
+    Text = Color3.fromRGB(255, 255, 255),
+    Secondary = Color3.fromRGB(178, 178, 178),
     Muted = Color3.fromRGB(112, 112, 119),
-    Field = Color3.fromRGB(42, 42, 45),
-    FieldHover = Color3.fromRGB(49, 49, 52),
-    ToggleOn = Color3.fromRGB(82, 82, 87),
-    ToggleKnob = Color3.fromRGB(216, 216, 220),
-    ToggleKnobOn = Color3.fromRGB(248, 248, 250),
+
+    Field = Color3.fromRGB(255, 255, 255),
+    FieldHover = Color3.fromRGB(255, 255, 255),
+
+    -- Rayfield Gen2 default toggle styling.
+    Accent = Color3.fromRGB(23, 153, 110),
+    AccentStroke = Color3.fromRGB(32, 201, 144),
+    AccentGlow = 0.4,
+    ToggleTrack = Color3.fromRGB(0, 0, 0),
+    ToggleTrackTransparency = 0.9,
+    ToggleKnob = Color3.fromRGB(255, 255, 255),
+    ToggleKnobOn = Color3.fromRGB(23, 153, 110),
+    ToggleKnobOffTransparency = 0.8,
+
     Danger = Color3.fromRGB(215, 115, 120),
     Shadow = Color3.fromRGB(20, 20, 20),
-    Gloss = Color3.fromRGB(255, 255, 255),
     Glow = Color3.fromRGB(255, 255, 255),
-    Accent = Color3.fromRGB(236, 238, 246),
-    AccentStroke = Color3.fromRGB(255, 255, 255),
 }
 
 local LAYOUT = {
@@ -109,58 +127,24 @@ local function stroke(parent, color, transparency, thickness)
     })
 end
 
-local function glow(parent, color, blurRadius, transparency)
+local function glow(parent, color, blurRadius, transparency, offset, spread)
     local ok, result = pcall(function()
-        return create("UIShadow", {
+        local props = {
             Parent = parent,
             Color = color,
-            BlurRadius = UDim.new(0, blurRadius or 16),
-            Transparency = transparency or 1,
+            BlurRadius = UDim.new(0, blurRadius or 20),
+            Transparency = transparency == nil and 1 or transparency,
             ZIndex = -1,
-        })
+        }
+        if offset then
+            props.Offset = offset
+        end
+        if spread then
+            props.Spread = spread
+        end
+        return create("UIShadow", props)
     end)
     return ok and result or nil
-end
-
-local function gloss(parent, radius, zIndex, transparency)
-    local sheen = create("Frame", {
-        Parent = parent,
-        Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BackgroundTransparency = transparency or 0.9,
-        BorderSizePixel = 0,
-        ZIndex = zIndex or 3,
-    })
-    corner(sheen, radius)
-    create("UIGradient", {
-        Parent = sheen,
-        Rotation = 90,
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(0.34, 0.18),
-            NumberSequenceKeypoint.new(0.58, 0.88),
-            NumberSequenceKeypoint.new(0.72, 1),
-            NumberSequenceKeypoint.new(1, 1),
-        }),
-    })
-    return sheen
-end
-
-local function strokeGradient(target, topColor, middleColor, bottomColor)
-    return create("UIGradient", {
-        Parent = target,
-        Rotation = 55,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, topColor),
-            ColorSequenceKeypoint.new(0.48, middleColor),
-            ColorSequenceKeypoint.new(1, bottomColor),
-        }),
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0.08),
-            NumberSequenceKeypoint.new(0.45, 0.26),
-            NumberSequenceKeypoint.new(1, 0.62),
-        }),
-    })
 end
 
 local function tween(object, info, props)
@@ -187,7 +171,7 @@ local function mergeTheme(overrides)
     local out = table.clone(DEFAULT)
     if type(overrides) == "table" then
         for k, v in pairs(overrides) do
-            if out[k] ~= nil and typeof(v) == "Color3" then
+            if out[k] ~= nil and typeof(v) == typeof(out[k]) then
                 out[k] = v
             end
         end
@@ -447,29 +431,18 @@ local function registerConnection(window, connection)
 end
 
 local function setTabVisual(tab, state, instant)
-    local background
-    local strokeTransparency
-    local contentTransparency
-    local glowTransparency
+    local states = {
+        selected = { background = 0.4, stroke = 0.5, content = 0, shadow = 0.8 },
+        hover = { background = 0.7, stroke = 0.8, content = 0.3, shadow = 1 },
+        unselected = { background = 1, stroke = 1, content = 0.5, shadow = 1 },
+    }
 
-    if state == "selected" then
-        background = 0.4
-        strokeTransparency = 0.5
-        contentTransparency = 0
-        glowTransparency = 0.86
-    elseif state == "hover" then
-        background = 0.7
-        strokeTransparency = 0.8
-        contentTransparency = 0.3
-        glowTransparency = 0.94
-    else
-        background = 1
-        strokeTransparency = 1
-        contentTransparency = 0.5
-        glowTransparency = 1
-    end
+    local visual = states[state] or states.unselected
 
     local function apply(object, props)
+        if not object then
+            return
+        end
         if instant then
             for k, v in pairs(props) do
                 object[k] = v
@@ -479,17 +452,16 @@ local function setTabVisual(tab, state, instant)
         end
     end
 
-    apply(tab.selector, { BackgroundTransparency = background })
-    apply(tab.selectorStroke, { Transparency = strokeTransparency })
-    apply(tab.selectorTitle, { TextTransparency = contentTransparency })
-    if tab.selectorGlow then
-        apply(tab.selectorGlow, { Transparency = glowTransparency })
-    end
+    apply(tab.selector, { BackgroundTransparency = visual.background })
+    apply(tab.selectorStroke, { Transparency = visual.stroke })
+    apply(tab.selectorTitle, { TextTransparency = visual.content })
+    apply(tab.selectorShadow, { Transparency = visual.shadow })
+
     if tab.selectorIcon then
         if tab.selectorIcon:IsA("ImageLabel") then
-            apply(tab.selectorIcon, { ImageTransparency = contentTransparency })
+            apply(tab.selectorIcon, { ImageTransparency = visual.content })
         else
-            tab.selectorIcon.GroupTransparency = contentTransparency
+            apply(tab.selectorIcon, { GroupTransparency = visual.content })
         end
     end
 end
@@ -574,39 +546,33 @@ local function buildElementBase(tab, height, config)
     local main = create("Frame", {
         Parent = tab.page,
         Size = UDim2.new(1, -20, 0, height),
-        BackgroundColor3 = window.theme.Element,
-        BackgroundTransparency = 0.12,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = window.theme.ElementTransparency,
         BorderSizePixel = 0,
     })
     corner(main, 12)
 
-    create("UIGradient", {
+    -- Gen2 StyleElementBody: a simple vertical element gradient + clean stroke.
+    local elementGradient = create("UIGradient", {
         Parent = main,
-        Rotation = 90,
+        Rotation = 270,
         Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, window.theme.Element:Lerp(window.theme.Gloss, 0.10)),
-            ColorSequenceKeypoint.new(0.42, window.theme.Element),
+            ColorSequenceKeypoint.new(0, window.theme.Element),
+            ColorSequenceKeypoint.new(0.9999, window.theme.Element2),
             ColorSequenceKeypoint.new(1, window.theme.Element2),
         }),
     })
 
-    local bodyStroke = stroke(main, window.theme.Stroke, 0.72, 1)
-    strokeGradient(
-        bodyStroke,
-        window.theme.Stroke:Lerp(window.theme.Gloss, 0.35),
-        window.theme.Stroke,
-        window.theme.StrokeSoft
-    )
-    local elementGlow = glow(main, window.theme.Glow, 12, 0.965)
-    local elementGloss = gloss(main, 12, 3, 0.91)
+    local bodyStroke = stroke(main, window.theme.Stroke, window.theme.ElementStrokeTransparency, 1)
 
+    -- Gen2 CreateHoverOverlay: almost invisible white wash on hover.
     local hover = create("Frame", {
         Parent = main,
         Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = window.theme.ElementHover,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
-        ZIndex = 2,
+        ZIndex = 1,
     })
     corner(hover, 12)
 
@@ -619,13 +585,13 @@ local function buildElementBase(tab, height, config)
         ZIndex = 4,
     })
 
-    local list = create("UIListLayout", {
+    create("UIListLayout", {
         Parent = content,
         FillDirection = Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
         HorizontalAlignment = Enum.HorizontalAlignment.Left,
         SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 6),
+        Padding = UDim.new(0, 5),
     })
 
     local iconObject
@@ -636,7 +602,7 @@ local function buildElementBase(tab, height, config)
 
     local title = create("TextLabel", {
         Parent = content,
-        Size = UDim2.fromOffset(210, 18),
+        Size = UDim2.fromOffset(250, 16),
         AutomaticSize = Enum.AutomaticSize.X,
         BackgroundTransparency = 1,
         Text = name,
@@ -652,38 +618,40 @@ local function buildElementBase(tab, height, config)
 
     local interact = create("TextButton", {
         Parent = main,
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Text = "",
+        TextTransparency = 1,
         AutoButtonColor = false,
         ZIndex = 10,
     })
 
     registerConnection(window, main.MouseEnter:Connect(function()
-        tween(hover, TWEEN.Hover, { BackgroundTransparency = 0.972 })
-        tween(bodyStroke, TWEEN.Hover, { Transparency = 0.52 })
-        tween(elementGloss, TWEEN.Hover, { BackgroundTransparency = 0.855 })
-        if elementGlow then
-            tween(elementGlow, TWEEN.Hover, { Transparency = 0.90 })
-        end
+        tween(bodyStroke, TWEEN.Hover, {
+            Transparency = window.theme.ElementStrokeHoverTransparency,
+            Color = window.theme.ElementHoverStroke,
+        })
+        tween(title, TWEEN.Hover, { TextColor3 = window.theme.Text })
+        tween(hover, TWEEN.Hover, { BackgroundTransparency = 0.97 })
     end))
 
     registerConnection(window, main.MouseLeave:Connect(function()
+        tween(bodyStroke, TWEEN.Hover, {
+            Transparency = window.theme.ElementStrokeTransparency,
+            Color = window.theme.Stroke,
+        })
+        tween(title, TWEEN.Hover, { TextColor3 = window.theme.Text })
         tween(hover, TWEEN.Hover, { BackgroundTransparency = 1 })
-        tween(bodyStroke, TWEEN.Hover, { Transparency = 0.72 })
-        tween(elementGloss, TWEEN.Hover, { BackgroundTransparency = 0.91 })
-        if elementGlow then
-            tween(elementGlow, TWEEN.Hover, { Transparency = 0.965 })
-        end
     end))
 
     return {
         main = main,
         stroke = bodyStroke,
+        gradient = elementGradient,
         hover = hover,
-        glow = elementGlow,
-        gloss = elementGloss,
         content = content,
         title = title,
         interact = interact,
@@ -706,38 +674,63 @@ function Tab:CreateToggle(config)
     end
     value = value == true
 
+    -- Exact Gen2 full toggle track dimensions.
     local pill = create("Frame", {
         Parent = base.main,
         AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -16, 0.5, 0),
-        Size = UDim2.fromOffset(40, 22),
-        BackgroundColor3 = window.theme.Field,
+        Position = UDim2.new(1, -15, 0, 20),
+        Size = UDim2.fromOffset(50, 21),
+        BackgroundColor3 = window.theme.ToggleTrack,
+        BackgroundTransparency = window.theme.ToggleTrackTransparency,
         BorderSizePixel = 0,
         ZIndex = 5,
     })
-    corner(pill, 99)
-    local pillStroke = stroke(pill, window.theme.Stroke, 0.62, 1)
-    strokeGradient(
-        pillStroke,
-        window.theme.Stroke:Lerp(window.theme.Gloss, 0.42),
-        window.theme.Stroke,
-        window.theme.StrokeSoft
-    )
-    local pillGlow = glow(pill, window.theme.Glow, 14, 0.985)
-    local pillGloss = gloss(pill, 99, 6, 0.93)
+    corner(pill, 15)
+    local pillStroke = stroke(pill, Color3.fromRGB(255, 255, 255), 0.85, 1)
+
+    -- Gen2's subtle dark lower-half track overlay.
+    local trackOverlay = create("Frame", {
+        Parent = pill,
+        Size = UDim2.fromScale(1, 1),
+        Position = UDim2.fromScale(0, 0),
+        AnchorPoint = Vector2.new(0, 0),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ZIndex = 6,
+    })
+    corner(trackOverlay, 15)
+    create("UIGradient", {
+        Parent = trackOverlay,
+        Rotation = 90,
+        Color = ColorSequence.new(Color3.fromRGB(30, 30, 30)),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(1, 0.35),
+        }),
+    })
 
     local knob = create("Frame", {
         Parent = pill,
         AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.new(0, 3, 0.5, 0),
-        Size = UDim2.fromOffset(16, 16),
-        BackgroundColor3 = window.theme.ToggleKnob,
+        Position = value and UDim2.new(1, -28, 0.5, 0) or UDim2.new(1, -47, 0.5, 0),
+        Size = UDim2.fromOffset(25, 17),
+        BackgroundColor3 = value and window.theme.Accent or window.theme.ToggleKnob,
+        BackgroundTransparency = value and 0 or window.theme.ToggleKnobOffTransparency,
         BorderSizePixel = 0,
         ZIndex = 8,
     })
     corner(knob, 99)
-    local knobGlow = glow(knob, window.theme.Glow, 18, 0.98)
-    local knobGloss = gloss(knob, 99, 9, 0.68)
+
+    local knobStroke = stroke(
+        knob,
+        value and window.theme.AccentStroke or Color3.fromRGB(255, 255, 255),
+        value and 0 or 0.7,
+        1
+    )
+
+    -- This is the actual Gen2 radial glow: UIShadow on the indicator itself.
+    local knobGlow = glow(knob, window.theme.Accent, 20, value and window.theme.AccentGlow or 1)
 
     local handle = setmetatable({
         window = window,
@@ -745,13 +738,13 @@ function Tab:CreateToggle(config)
         main = base.main,
         title = base.title,
         interact = base.interact,
+        baseStroke = base.stroke,
         pill = pill,
         pillStroke = pillStroke,
-        pillGlow = pillGlow,
-        pillGloss = pillGloss,
+        trackOverlay = trackOverlay,
         knob = knob,
+        knobStroke = knobStroke,
         knobGlow = knobGlow,
-        knobGloss = knobGloss,
         name = base.name,
         searchName = base.searchName,
         flag = flag,
@@ -765,12 +758,23 @@ function Tab:CreateToggle(config)
     handle:_render(true)
 
     registerConnection(window, base.interact.MouseButton1Click:Connect(function()
-        tween(base.stroke, TWEEN.Fast, { Transparency = 1 })
+        tween(base.stroke, TWEEN.Hover, { Transparency = 1 })
+        tween(base.main, TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -26, 0, LAYOUT.ElementHeight),
+        })
+
         handle:Set(not handle.value)
+
         task.delay(0.11, function()
-            if base.stroke and base.stroke.Parent then
-                tween(base.stroke, TWEEN.Hover, { Transparency = 0.78 })
+            if not base.main.Parent then
+                return
             end
+            tween(base.main, TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, -20, 0, LAYOUT.ElementHeight),
+            })
+            tween(base.stroke, TWEEN.Hover, {
+                Transparency = window.theme.ElementStrokeTransparency,
+            })
         end)
     end))
 
@@ -779,36 +783,43 @@ end
 
 function Toggle:_render(instant)
     local on = self.value
-    local pillColor = on and self.window.theme.ToggleOn or self.window.theme.Field
-    local knobColor = on and self.window.theme.ToggleKnobOn or self.window.theme.ToggleKnob
-    local knobPosition = on and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
-    local propsPill = { BackgroundColor3 = pillColor }
-    local propsKnob = { Position = knobPosition, BackgroundColor3 = knobColor }
-    local propsStroke = {
-        Transparency = on and 0.34 or 0.62,
-        Color = on and self.window.theme.AccentStroke or self.window.theme.Stroke,
+    local propsKnob = {
+        Position = on and UDim2.new(1, -28, 0.5, 0) or UDim2.new(1, -47, 0.5, 0),
+        BackgroundColor3 = on and self.window.theme.Accent or self.window.theme.ToggleKnob,
+        BackgroundTransparency = on and 0 or self.window.theme.ToggleKnobOffTransparency,
     }
-    local pillGlowTransparency = on and 0.91 or 0.985
-    local knobGlowTransparency = on and 0.76 or 0.98
-    local pillGlossTransparency = on and 0.875 or 0.93
-    local knobGlossTransparency = on and 0.56 or 0.68
+    local propsStroke = {
+        Color = on and self.window.theme.AccentStroke or Color3.fromRGB(255, 255, 255),
+        Transparency = on and 0 or 0.7,
+    }
+    local glowTransparency = on and self.window.theme.AccentGlow or 1
 
     if instant then
-        for k, v in pairs(propsPill) do self.pill[k] = v end
-        for k, v in pairs(propsKnob) do self.knob[k] = v end
-        for k, v in pairs(propsStroke) do self.pillStroke[k] = v end
-        if self.pillGlow then self.pillGlow.Transparency = pillGlowTransparency end
-        if self.knobGlow then self.knobGlow.Transparency = knobGlowTransparency end
-        if self.pillGloss then self.pillGloss.BackgroundTransparency = pillGlossTransparency end
-        if self.knobGloss then self.knobGloss.BackgroundTransparency = knobGlossTransparency end
-    else
-        tween(self.pill, TWEEN.Hover, propsPill)
-        tween(self.knob, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), propsKnob)
-        tween(self.pillStroke, TWEEN.Hover, propsStroke)
-        if self.pillGlow then tween(self.pillGlow, TWEEN.Hover, { Transparency = pillGlowTransparency }) end
-        if self.knobGlow then tween(self.knobGlow, TWEEN.Hover, { Transparency = knobGlowTransparency }) end
-        if self.pillGloss then tween(self.pillGloss, TWEEN.Hover, { BackgroundTransparency = pillGlossTransparency }) end
-        if self.knobGloss then tween(self.knobGloss, TWEEN.Hover, { BackgroundTransparency = knobGlossTransparency }) end
+        for k, v in pairs(propsKnob) do
+            self.knob[k] = v
+        end
+        for k, v in pairs(propsStroke) do
+            self.knobStroke[k] = v
+        end
+        if self.knobGlow then
+            self.knobGlow.Color = self.window.theme.Accent
+            self.knobGlow.Transparency = glowTransparency
+        end
+        self.pill.BackgroundColor3 = self.window.theme.ToggleTrack
+        self.pill.BackgroundTransparency = self.window.theme.ToggleTrackTransparency
+        return
+    end
+
+    local info = TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+    tween(self.knob, info, propsKnob)
+    tween(self.knobStroke, info, propsStroke)
+    tween(self.pill, info, {
+        BackgroundColor3 = self.window.theme.ToggleTrack,
+        BackgroundTransparency = self.window.theme.ToggleTrackTransparency,
+    })
+    if self.knobGlow then
+        self.knobGlow.Color = self.window.theme.Accent
+        tween(self.knobGlow, info, { Transparency = glowTransparency })
     end
 end
 
@@ -842,36 +853,6 @@ function Tab:CreateButton(config)
     local base = buildElementBase(self, LAYOUT.ButtonHeight, config)
     local callback = pick(config, "callback", "Callback") or function() end
 
-    local arrowHolder = create("Frame", {
-        Parent = base.main,
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -17, 0.5, 0),
-        Size = UDim2.fromOffset(16, 16),
-        BackgroundTransparency = 1,
-        ZIndex = 5,
-    })
-
-    local arrowA = create("Frame", {
-        Parent = arrowHolder,
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0.5, -1, 0.5, -3),
-        Size = UDim2.fromOffset(7, 1),
-        Rotation = 45,
-        BackgroundColor3 = self.window.theme.Secondary,
-        BackgroundTransparency = 0.25,
-        BorderSizePixel = 0,
-    })
-    local arrowB = create("Frame", {
-        Parent = arrowHolder,
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(0.5, -1, 0.5, 3),
-        Size = UDim2.fromOffset(7, 1),
-        Rotation = -45,
-        BackgroundColor3 = self.window.theme.Secondary,
-        BackgroundTransparency = 0.25,
-        BorderSizePixel = 0,
-    })
-
     local handle = setmetatable({
         window = self.window,
         tab = self,
@@ -883,21 +864,28 @@ function Tab:CreateButton(config)
     }, Button)
 
     registerConnection(self.window, base.interact.MouseButton1Click:Connect(function()
-        tween(base.stroke, TWEEN.Fast, { Transparency = 1 })
-        tween(arrowA, TWEEN.Fast, { BackgroundTransparency = 0 })
-        tween(arrowB, TWEEN.Fast, { BackgroundTransparency = 0 })
+        tween(base.stroke, TWEEN.Hover, { Transparency = 1 })
+        tween(base.main, TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -26, 0, LAYOUT.ButtonHeight),
+        })
+
         task.spawn(function()
             local ok, err = pcall(callback)
             if not ok then
                 warn("Aether button callback error: " .. tostring(err))
             end
         end)
+
         task.delay(0.11, function()
-            if base.stroke.Parent then
-                tween(base.stroke, TWEEN.Hover, { Transparency = 0.78 })
-                tween(arrowA, TWEEN.Hover, { BackgroundTransparency = 0.25 })
-                tween(arrowB, TWEEN.Hover, { BackgroundTransparency = 0.25 })
+            if not base.main.Parent then
+                return
             end
+            tween(base.main, TweenInfo.new(0.25, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                Size = UDim2.new(1, -20, 0, LAYOUT.ButtonHeight),
+            })
+            tween(base.stroke, TWEEN.Hover, {
+                Transparency = self.window.theme.ElementStrokeTransparency,
+            })
         end)
     end))
 
@@ -941,39 +929,48 @@ function Window:CreateTab(config)
     local selector = create("TextButton", {
         Parent = self.tabList,
         Size = UDim2.new(1, -LAYOUT.RowInset * 2, 0, LAYOUT.RowHeight),
-        BackgroundColor3 = self.theme.Tab,
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Text = "",
+        TextTransparency = 1,
         AutoButtonColor = false,
     })
     corner(selector, LAYOUT.RowCorner)
-    create("UIGradient", {
+
+    -- Exact Gen2 sidebar tab surface and border gradients.
+    local selectorGradient = create("UIGradient", {
         Parent = selector,
         Rotation = 90,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, self.theme.Tab:Lerp(self.theme.Gloss, 0.18)),
-            ColorSequenceKeypoint.new(1, self.theme.Tab:Lerp(Color3.new(0, 0, 0), 0.08)),
-        }),
+        Color = ColorSequence.new(self.theme.Tab, self.theme.TabBottom),
     })
-    local selectorStroke = stroke(selector, self.theme.StrokeSoft, 1, 1)
-    strokeGradient(
-        selectorStroke,
-        self.theme.Stroke:Lerp(self.theme.Gloss, 0.45),
-        self.theme.Stroke,
-        self.theme.StrokeSoft
+
+    local selectorStroke = stroke(selector, Color3.fromRGB(255, 255, 255), 1, 1)
+    local selectorStrokeGradient = create("UIGradient", {
+        Parent = selectorStroke,
+        Rotation = 90,
+        Color = ColorSequence.new(self.theme.TabStrokeTop, self.theme.TabStrokeBottom),
+    })
+
+    -- Exact Gen2 sidebar selector shadow geometry. This is intentionally directional/radial.
+    local selectorShadow = glow(
+        selector,
+        Color3.fromRGB(255, 255, 255),
+        20,
+        1,
+        UDim2.new(0, 0, 0, -15),
+        UDim2.new(0, 10, 0, -30)
     )
-    local selectorGlow = glow(selector, self.theme.Glow, 14, 1)
 
     local selectorContent = create("Frame", {
         Parent = selector,
         AnchorPoint = Vector2.new(0, 0.5),
         Position = UDim2.new(0, LAYOUT.RowPadding, 0.5, 0),
-        Size = UDim2.new(1, -LAYOUT.RowPadding * 2, 0, LAYOUT.RowIconSize),
+        Size = UDim2.new(1, -LAYOUT.RowPadding, 0, 24),
         BackgroundTransparency = 1,
     })
 
-    local selectorLayout = create("UIListLayout", {
+    create("UIListLayout", {
         Parent = selectorContent,
         FillDirection = Enum.FillDirection.Horizontal,
         VerticalAlignment = Enum.VerticalAlignment.Center,
@@ -1012,13 +1009,13 @@ function Window:CreateTab(config)
 
     local selectorTitle = create("TextLabel", {
         Parent = selectorContent,
-        Size = UDim2.fromOffset(120, 18),
-        AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(120, 16),
+        AutomaticSize = Enum.AutomaticSize.XY,
         BackgroundTransparency = 1,
         Text = name,
         TextColor3 = self.theme.Text,
         TextTransparency = 0.5,
-        TextSize = 15,
+        TextSize = 16,
         FontFace = FONT_MEDIUM,
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Center,
@@ -1058,7 +1055,9 @@ function Window:CreateTab(config)
         icon = icon,
         selector = selector,
         selectorStroke = selectorStroke,
-        selectorGlow = selectorGlow,
+        selectorGradient = selectorGradient,
+        selectorStrokeGradient = selectorStrokeGradient,
+        selectorShadow = selectorShadow,
         selectorIcon = selectorIcon,
         selectorTitle = selectorTitle,
         page = page,
@@ -1068,9 +1067,18 @@ function Window:CreateTab(config)
     table.insert(self.tabs, tab)
     selector.LayoutOrder = #self.tabs * 10
 
+    local function spinGradients()
+        local info = TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        for _, gradient in ipairs({ selectorGradient, selectorStrokeGradient }) do
+            gradient.Rotation = -270
+            tween(gradient, info, { Rotation = 90 })
+        end
+    end
+
     registerConnection(self, selector.MouseEnter:Connect(function()
         if self.selectedTab ~= tab then
             setTabVisual(tab, "hover", false)
+            spinGradients()
         end
     end))
 
@@ -1359,30 +1367,18 @@ function Aether:CreateWindow(config)
         Padding = UDim.new(0, 5),
     })
 
-    local actionGlows = {}
-
     local function actionButton(order)
         local button = create("TextButton", {
             Parent = actionContainer,
             Size = UDim2.fromOffset(28, 28),
-            BackgroundColor3 = theme.Element,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             Text = "",
+            TextTransparency = 1,
             AutoButtonColor = false,
             LayoutOrder = order,
             ZIndex = 25,
         })
-        corner(button, 9)
-        create("UIGradient", {
-            Parent = button,
-            Rotation = 90,
-            Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, theme.Element:Lerp(theme.Gloss, 0.14)),
-                ColorSequenceKeypoint.new(1, theme.Element2),
-            }),
-        })
-        actionGlows[button] = glow(button, theme.Glow, 12, 1)
         return button
     end
 
@@ -1493,8 +1489,6 @@ function Aether:CreateWindow(config)
         ZIndex = 8,
     })
     corner(avatar, 99)
-    local avatarGlow = glow(avatar, theme.Glow, 12, 0.94)
-    local avatarGloss = gloss(avatar, 99, 9, 0.78)
 
     local profileName = create("TextLabel", {
         Parent = profileContainer,
@@ -1532,18 +1526,8 @@ function Aether:CreateWindow(config)
         ZIndex = 30,
     })
     corner(searchPill, 12)
-    create("UIGradient", {
-        Parent = searchPill,
-        Rotation = 90,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, theme.Element:Lerp(theme.Gloss, 0.12)),
-            ColorSequenceKeypoint.new(1, theme.Element2),
-        }),
-    })
-    local searchPillStroke = stroke(searchPill, theme.StrokeSoft, 1, 1)
-    strokeGradient(searchPillStroke, theme.Stroke, theme.StrokeSoft, theme.Element2)
-    local searchPillGlow = glow(searchPill, theme.Glow, 16, 1)
-    local searchPillGloss = gloss(searchPill, 12, 30, 0.90)
+    local searchPillStroke = stroke(searchPill, Color3.fromRGB(255, 255, 255), 1, 1)
+    local searchPillGlow = glow(searchPill, Color3.fromRGB(255, 255, 255), 20, 1)
 
     local searchBox = create("TextBox", {
         Parent = searchPill,
@@ -1574,14 +1558,11 @@ function Aether:CreateWindow(config)
         pageHost = pageHost,
         profile = profile,
         avatar = avatar,
-        avatarGlow = avatarGlow,
-        avatarGloss = avatarGloss,
         title = title,
         subtitle = subtitleLabel,
         searchPill = searchPill,
         searchPillStroke = searchPillStroke,
         searchPillGlow = searchPillGlow,
-        searchPillGloss = searchPillGloss,
         searchBox = searchBox,
         searchButton = searchButton,
         minimizeButton = minimizeButton,
@@ -1610,11 +1591,8 @@ function Aether:CreateWindow(config)
     end
 
     local function hoverAction(button, enter)
-        tween(button, TWEEN.Hover, { BackgroundTransparency = enter and 0.18 or 1 })
-        local actionGlow = actionGlows[button]
-        if actionGlow then
-            tween(actionGlow, TWEEN.Hover, { Transparency = enter and 0.86 or 1 })
-        end
+        -- Gen2 action buttons do not light up a card; only their icon/content brightens.
+        button.BackgroundTransparency = 1
     end
 
     registerConnection(window, searchButton.MouseEnter:Connect(function() hoverAction(searchButton, true) end))
@@ -1648,11 +1626,10 @@ function Aether:CreateWindow(config)
             searchPill.BackgroundTransparency = 1
             searchPillStroke.Transparency = 1
             searchBox.TextTransparency = 1
-            tween(searchPill, TWEEN.Hover, { BackgroundTransparency = 0.1 })
-            tween(searchPillStroke, TWEEN.Hover, { Transparency = 0.48 })
-            if searchPillGlow then tween(searchPillGlow, TWEEN.Hover, { Transparency = 0.84 }) end
-            tween(searchPillGloss, TWEEN.Hover, { BackgroundTransparency = 0.84 })
-            tween(searchBox, TWEEN.Hover, { TextTransparency = 0 })
+            tween(searchPill, TWEEN.Hover, { BackgroundTransparency = 0.92 })
+            tween(searchPillStroke, TWEEN.Hover, { Transparency = 0.86 })
+            if searchPillGlow then tween(searchPillGlow, TWEEN.Hover, { Transparency = 0.92 }) end
+            tween(searchBox, TWEEN.Hover, { TextTransparency = 0.3 })
             task.defer(function()
                 if searchBox.Parent then searchBox:CaptureFocus() end
             end)
@@ -1663,7 +1640,6 @@ function Aether:CreateWindow(config)
             tween(searchPill, TWEEN.Fast, { BackgroundTransparency = 1 })
             tween(searchPillStroke, TWEEN.Fast, { Transparency = 1 })
             if searchPillGlow then tween(searchPillGlow, TWEEN.Fast, { Transparency = 1 }) end
-            tween(searchPillGloss, TWEEN.Fast, { BackgroundTransparency = 1 })
             tween(searchBox, TWEEN.Fast, { TextTransparency = 1 })
             task.delay(0.16, function()
                 if searchPill.Parent and not window.searchOpen then
