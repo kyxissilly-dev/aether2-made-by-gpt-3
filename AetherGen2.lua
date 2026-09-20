@@ -7,7 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.5.1"
+Aether.Version = "0.5.2"
 
 local DefaultTheme = {
     Window = Color3.fromRGB(18, 18, 19),
@@ -1069,7 +1069,7 @@ end
 function Tab:CreateSlider(options)
     options = type(options) == "table" and options or {}
 
-    local base = createBaseElement(self, 58, options, 225)
+    local base = createBaseElement(self, 62, options, 225)
     local window = self.window
     local callback = option(options, "callback", "Callback") or function() end
     local minimum = tonumber(option(options, "min", "Min")) or 0
@@ -1090,25 +1090,36 @@ function Tab:CreateSlider(options)
     local initial = tonumber(option(options, "value", "Value", "default", "Default")) or minimum
     initial = math.clamp(initial, minimum, maximum)
 
-    local valueLabel = create("TextLabel", {
+    local valuePill = create("Frame", {
         Parent = base.main,
         AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -16, 0, 8),
-        Size = UDim2.fromOffset(90, 18),
+        Position = UDim2.new(1, -14, 0, 10),
+        Size = UDim2.fromOffset(86, 20),
+        BackgroundColor3 = window.theme.Window2,
+        BackgroundTransparency = 0.08,
+        ZIndex = 6
+    })
+
+    corner(valuePill, 999)
+    stroke(valuePill, window.theme.StrokeSoft, 0.2, 1)
+
+    local valueLabel = create("TextLabel", {
+        Parent = valuePill,
+        Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         Text = "",
         TextColor3 = window.theme.Secondary,
-        TextSize = 13,
+        TextSize = 12,
         FontFace = FontMedium,
-        TextXAlignment = Enum.TextXAlignment.Right,
-        ZIndex = 6
+        TextXAlignment = Enum.TextXAlignment.Center,
+        ZIndex = 7
     })
 
     local sliderHitbox = create("TextButton", {
         Parent = base.main,
         AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -16, 1, -2),
-        Size = UDim2.fromOffset(190, 24),
+        Position = UDim2.new(1, -16, 1, -4),
+        Size = UDim2.fromOffset(192, 26),
         BackgroundTransparency = 1,
         Text = "",
         TextTransparency = 1,
@@ -1120,35 +1131,48 @@ function Tab:CreateSlider(options)
     local bar = create("Frame", {
         Parent = sliderHitbox,
         AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.fromScale(0, 0.5),
-        Size = UDim2.new(1, 0, 0, 6),
-        BackgroundColor3 = window.theme.Field,
-        BackgroundTransparency = 0.05,
+        Position = UDim2.new(0, 0, 0.5, 0),
+        Size = UDim2.new(1, 0, 0, 4),
+        BackgroundColor3 = window.theme.StrokeSoft,
+        BackgroundTransparency = 0.35,
         ZIndex = 10
     })
 
-    corner(bar, 99)
+    corner(bar, 999)
 
     local fill = create("Frame", {
         Parent = bar,
         Size = UDim2.fromScale(0, 1),
         BackgroundColor3 = window.theme.Accent,
-        ZIndex = 7
+        ZIndex = 11
     })
 
-    corner(fill, 99)
+    corner(fill, 999)
+
+    local fillGlow = shadow(fill, window.theme.Accent, 12, 0.65, nil, UDim2.new(0, 8, 0, -18))
 
     local knob = create("Frame", {
         Parent = bar,
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0, 0.5),
-        Size = UDim2.fromOffset(13, 13),
-        BackgroundColor3 = window.theme.AccentStroke,
-        ZIndex = 8
+        Size = UDim2.fromOffset(14, 14),
+        BackgroundColor3 = window.theme.Window,
+        ZIndex = 12
     })
 
-    corner(knob, 99)
-    stroke(knob, window.theme.Text, 0.7, 1)
+    corner(knob, 999)
+    stroke(knob, window.theme.AccentStroke, 0, 1.2)
+
+    local knobInner = create("Frame", {
+        Parent = knob,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(6, 6),
+        BackgroundColor3 = window.theme.Accent,
+        ZIndex = 13
+    })
+
+    corner(knobInner, 999)
 
     local control = setmetatable({
         window = window,
@@ -1167,7 +1191,10 @@ function Tab:CreateSlider(options)
         bar = bar,
         hitbox = sliderHitbox,
         fill = fill,
+        fillGlow = fillGlow,
         knob = knob,
+        knobInner = knobInner,
+        valuePill = valuePill,
         valueLabel = valueLabel,
         dragging = false
     }, Slider)
@@ -1198,6 +1225,24 @@ function Tab:CreateSlider(options)
         end
     end))
 
+    registerConnection(window, sliderHitbox.MouseEnter:Connect(function()
+        tween(control.valuePill, Tweens.Hover, {BackgroundTransparency = 0})
+        if control.fillGlow then
+            tween(control.fillGlow, Tweens.Hover, {Transparency = 0.45})
+        end
+    end))
+
+    registerConnection(window, sliderHitbox.MouseLeave:Connect(function()
+        if control.dragging then
+            return
+        end
+
+        tween(control.valuePill, Tweens.Hover, {BackgroundTransparency = 0.08})
+        if control.fillGlow then
+            tween(control.fillGlow, Tweens.Hover, {Transparency = 0.65})
+        end
+    end))
+
     registerConnection(window, UserInputService.InputChanged:Connect(function(input)
         if not control.dragging or window.destroyed then
             return
@@ -1220,6 +1265,10 @@ function Tab:CreateSlider(options)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input == control.dragInput then
             control.dragging = false
             control.dragInput = nil
+            tween(control.valuePill, Tweens.Hover, {BackgroundTransparency = 0.08})
+            if control.fillGlow then
+                tween(control.fillGlow, Tweens.Hover, {Transparency = 0.65})
+            end
         end
     end))
 
@@ -1236,18 +1285,21 @@ function Slider:_render(instant)
     local ratio = range == 0 and 0 or (self.value - self.minimum) / range
     ratio = math.clamp(ratio, 0, 1)
 
-    local properties = {Size = UDim2.fromScale(ratio, 1)}
-    local knobProperties = {Position = UDim2.fromScale(ratio, 0.5)}
+    local fillWidth = math.max(0, ratio)
+    local fillSize = UDim2.new(fillWidth, 0, 1, 0)
+    local knobPosition = UDim2.fromScale(ratio, 0.5)
 
     if instant then
-        self.fill.Size = properties.Size
-        self.knob.Position = knobProperties.Position
+        self.fill.Size = fillSize
+        self.knob.Position = knobPosition
     else
-        tween(self.fill, Tweens.Fast, properties)
-        tween(self.knob, Tweens.Fast, knobProperties)
+        tween(self.fill, Tweens.Fast, {Size = fillSize})
+        tween(self.knob, Tweens.Fast, {Position = knobPosition})
     end
 
-    local decimals = math.max(0, select(2, tostring(self.increment):gsub("%.(%d+)", "%1")) > 0 and #tostring(self.increment):match("%.(%d+)") or 0)
+    local incrementString = tostring(self.increment)
+    local decimalMatch = incrementString:match("%.(%d+)")
+    local decimals = decimalMatch and #decimalMatch or 0
     local formatted = decimals > 0 and string.format("%." .. decimals .. "f", self.value) or tostring(math.floor(self.value + 0.5))
     self.valueLabel.Text = formatted .. self.suffix
 end
