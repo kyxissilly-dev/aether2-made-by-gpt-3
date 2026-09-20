@@ -7,7 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.4.1"
+Aether.Version = "0.4.3"
 
 local DEFAULT = {
     Window = Color3.fromRGB(18, 18, 19),
@@ -1158,50 +1158,56 @@ function Window:Show()
     self.animating = true
     self.hidden = false
     self.screen.Enabled = true
-    self.main.Visible = true
-    self.main.GroupTransparency = 0
-    self.scale.Scale = 1
 
     local restorePosition = self._restorePosition or UDim2.new(0.5, 0, 0.5, 0)
     local moveInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
     local chromeInfo = TweenInfo.new(0.28, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
     local collapsedFade = TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
-    self.collapsedFace.Visible = true
-    tween(self.collapsedFace, collapsedFade, { GroupTransparency = 1 })
     self.collapsedInteract.Active = false
+    tween(self.collapsedFace, collapsedFade, { GroupTransparency = 1 })
 
-    task.delay(0.15, function()
-        if self.collapsedFace and self.collapsedFace.Parent and not self.hidden then
-            self.collapsedFace.Visible = false
-        end
-    end)
-
-    tween(self.main, moveInfo, {
+    local movement = tween(self.collapsedShell, moveInfo, {
         Size = UDim2.fromOffset(self.size.X, self.size.Y),
         Position = restorePosition,
     })
-    tween(self.mainCorner, moveInfo, { CornerRadius = UDim.new(0, 18) })
-    tween(self.clipCorner, moveInfo, { CornerRadius = UDim.new(0, 18) })
+    tween(self.collapsedShellCorner, moveInfo, { CornerRadius = UDim.new(0, 18) })
 
+    -- Match Gen2's timing: start revealing the real window before the shell has
+    -- completely finished expanding so the transition never looks like a cut.
     task.delay(0.22, function()
         if self.hidden or self.destroyed then return end
 
+        self.main.Position = restorePosition
+        self.main.Size = UDim2.fromOffset(self.size.X, self.size.Y)
+        self.main.Visible = true
+        self.main.GroupTransparency = 1
+        self.scale.Scale = 1
+
         self.topbar.Visible = true
         self.body.Visible = true
-        self.topbar.GroupTransparency = 1
-        self.body.GroupTransparency = 1
+        self.topbar.GroupTransparency = 0
+        self.body.GroupTransparency = 0
 
+        tween(self.main, chromeInfo, { GroupTransparency = 0 })
         tween(self.shadow, chromeInfo, { Transparency = 0.6 })
         tween(self.mainStroke, chromeInfo, { Transparency = 0.6 })
-        tween(self.topbar, chromeInfo, { GroupTransparency = 0 })
-        tween(self.body, chromeInfo, { GroupTransparency = 0 })
     end)
 
-    task.delay(0.6, function()
-        if not self.destroyed and not self.hidden then
-            self.animating = false
-        end
+    movement.Completed:Connect(function()
+        if self.destroyed or self.hidden then return end
+
+        self.main.Position = restorePosition
+        self.main.Size = UDim2.fromOffset(self.size.X, self.size.Y)
+        self.main.Visible = true
+        self.main.GroupTransparency = 0
+        self.mainCorner.CornerRadius = UDim.new(0, 18)
+        self.clipCorner.CornerRadius = UDim.new(0, 18)
+
+        self.collapsedShell.GroupTransparency = 1
+        self.collapsedShell.Visible = false
+        self.collapsedFace.GroupTransparency = 1
+        self.animating = false
     end)
 end
 
@@ -1212,16 +1218,14 @@ function Window:Hide()
     self.hidden = true
     self._restorePosition = self.main.Position
 
-    -- The collapsed pill is the same main window, so keep the outer window fully
-    -- visible while its normal contents fade away and the frame morphs upward.
     self.screen.Enabled = true
-    self.main.Visible = true
-    self.main.GroupTransparency = 0
-    self.scale.Scale = 1
 
     if self.minimized then
         self.minimized = false
         self.minimizeLine.Rotation = 0
+        self.main.Size = UDim2.fromOffset(self.size.X, self.size.Y)
+        self.body.Visible = true
+        self.body.GroupTransparency = 0
     end
 
     if self.searchOpen then
@@ -1237,34 +1241,59 @@ function Window:Hide()
     local fadeInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
     local moveInfo = TweenInfo.new(0.35, Enum.EasingStyle.Exponential, Enum.EasingDirection.InOut)
     local revealInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+    local shellFadeInfo = TweenInfo.new(0.10, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
-    tween(self.topbar, fadeInfo, { GroupTransparency = 1 })
-    tween(self.body, fadeInfo, { GroupTransparency = 1 })
-    tween(self.shadow, fadeInfo, { Transparency = 1 })
-    tween(self.mainStroke, fadeInfo, { Transparency = 1 })
+    -- The restore shell starts exactly over the real window and performs the
+    -- morph itself. This is intentionally separate from `main`: on some clients,
+    -- shrinking a CanvasGroup that owns the whole UI can disappear once its
+    -- children are faded/clipped. A dedicated shell makes the animation reliable.
+    self.collapsedShell.Visible = true
+    self.collapsedShell.Position = self.main.Position
+    self.collapsedShell.Size = self.main.Size
+    self.collapsedShell.GroupTransparency = 1
+    self.collapsedShellCorner.CornerRadius = UDim.new(0, 18)
+    self.collapsedShellStroke.Transparency = 0.6
+    if self.collapsedShellShadow then
+        self.collapsedShellShadow.Transparency = 0.6
+    end
 
     self.collapsedFace.Visible = true
     self.collapsedFace.GroupTransparency = 1
-    self.collapsedFace.ZIndex = 100
     self.collapsedInteract.Visible = true
     self.collapsedInteract.Active = false
 
-    local movement = tween(self.main, moveInfo, {
+    -- Gen2 fades the chrome while the surface itself moves into the top pill.
+    tween(self.topbar, fadeInfo, { GroupTransparency = 1 })
+    tween(self.body, fadeInfo, { GroupTransparency = 1 })
+    tween(self.mainStroke, fadeInfo, { Transparency = 1 })
+    tween(self.shadow, fadeInfo, { Transparency = 1 })
+    tween(self.main, fadeInfo, { GroupTransparency = 1 })
+    tween(self.collapsedShell, shellFadeInfo, { GroupTransparency = 0 })
+
+    local movement = tween(self.collapsedShell, moveInfo, {
         Size = collapsedSize,
         Position = collapsedPosition,
     })
-    tween(self.mainCorner, moveInfo, { CornerRadius = UDim.new(1, 0) })
-    tween(self.clipCorner, moveInfo, { CornerRadius = UDim.new(1, 0) })
+    tween(self.collapsedShellCorner, moveInfo, { CornerRadius = UDim.new(1, 0) })
 
     task.delay(0.18, function()
         if not self.hidden or self.destroyed then return end
-        self.topbar.Visible = false
-        self.body.Visible = false
+        self.main.Visible = false
+        self.main.GroupTransparency = 0
+        self.topbar.GroupTransparency = 0
+        self.body.GroupTransparency = 0
+    end)
+
+    task.delay(0.18, function()
+        if not self.hidden or self.destroyed then return end
         tween(self.collapsedFace, revealInfo, { GroupTransparency = 0 })
     end)
 
     movement.Completed:Connect(function()
         if self.destroyed or not self.hidden then return end
+        self.collapsedShell.Position = collapsedPosition
+        self.collapsedShell.Size = collapsedSize
+        self.collapsedShellCorner.CornerRadius = UDim.new(1, 0)
         self.collapsedInteract.Active = true
         self.animating = false
     end)
@@ -1292,6 +1321,9 @@ function Window:Destroy()
     tween(self.main, TWEEN.Fast, { GroupTransparency = 1 })
     tween(self.scale, TWEEN.Fast, { Scale = 0.96 })
     tween(self.shadow, TWEEN.Fast, { Transparency = 1 })
+    if self.collapsedShell then
+        tween(self.collapsedShell, TWEEN.Fast, { GroupTransparency = 1 })
+    end
 
     task.delay(0.17, function()
         if self.screen then
@@ -1500,20 +1532,48 @@ function Aether:CreateWindow(config)
     closeHolder.AnchorPoint = Vector2.new(0.5, 0.5)
     closeHolder.Position = UDim2.fromScale(0.5, 0.5)
 
-    -- Gen2-style collapsed restore pill. The actual window morphs into this
-    -- shape instead of disappearing, then expands back to its restore position.
+    -- Gen2-style collapsed restore pill. Keep this as its own top-level shell.
+    -- This avoids CanvasGroup/clipping quirks where a collapsed face inside the
+    -- main window can vanish together with the normal window contents.
+    local collapsedShell = create("CanvasGroup", {
+        Parent = screen,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0, 45),
+        Size = UDim2.fromOffset(185, 50),
+        BackgroundColor3 = theme.Window,
+        BackgroundTransparency = 0,
+        BorderSizePixel = 0,
+        ClipsDescendants = true,
+        GroupTransparency = 1,
+        Visible = false,
+        ZIndex = 200,
+    })
+    pcall(function()
+        collapsedShell.Interactable = true
+    end)
+    local collapsedShellCorner = corner(collapsedShell, 99)
+    local collapsedShellStroke = stroke(collapsedShell, theme.Stroke, 0.6, 1)
+    local collapsedShellShadow = glow(collapsedShell, theme.Shadow, 20, 0.6)
+
+    create("UIGradient", {
+        Parent = collapsedShell,
+        Rotation = 90,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, theme.Window2),
+            ColorSequenceKeypoint.new(0.23, theme.Window),
+            ColorSequenceKeypoint.new(1, theme.Window),
+        }),
+    })
+
     local collapsedFace = create("CanvasGroup", {
-        -- Gen2 keeps the collapsed restore face directly on the window itself.
-        -- Keeping it outside the clipping/content wrapper prevents it from being
-        -- hidden when the normal topbar/body are faded and disabled.
-        Parent = main,
+        Parent = collapsedShell,
         Position = UDim2.fromOffset(0, 0),
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         GroupTransparency = 1,
-        Visible = false,
-        ZIndex = 100,
+        Visible = true,
+        ZIndex = 201,
     })
 
     local collapsedIconHolder = create("Frame", {
@@ -1575,16 +1635,24 @@ function Aether:CreateWindow(config)
         ZIndex = 102,
     })
 
+    -- Keep the restore hitbox OUTSIDE collapsedFace. collapsedFace is a CanvasGroup
+    -- whose transparency is animated during the morph; putting the button inside it
+    -- can leave the button behind the flattened CanvasGroup render/input layer.
+    -- A direct child of collapsedShell stays on top and remains clickable.
     local collapsedInteract = create("TextButton", {
-        Parent = collapsedFace,
+        Parent = collapsedShell,
         Name = "CollapsedInteract",
         Size = UDim2.fromScale(1, 1),
+        Position = UDim2.fromScale(0, 0),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Text = "",
         TextTransparency = 1,
         AutoButtonColor = false,
-        ZIndex = 110,
+        Active = false,
+        Selectable = false,
+        Visible = true,
+        ZIndex = 1000,
     })
 
     local body = create("CanvasGroup", {
@@ -1758,6 +1826,10 @@ function Aether:CreateWindow(config)
         minimizeLine = minimizeLine,
         closeA = closeA,
         closeB = closeB,
+        collapsedShell = collapsedShell,
+        collapsedShellCorner = collapsedShellCorner,
+        collapsedShellStroke = collapsedShellStroke,
+        collapsedShellShadow = collapsedShellShadow,
         collapsedFace = collapsedFace,
         collapsedInteract = collapsedInteract,
         collapsedTitle = collapsedTitle,
@@ -1860,18 +1932,34 @@ function Aether:CreateWindow(config)
         end
 
         local point = Vector2.new(input.Position.X, input.Position.Y)
-        local center = main.AbsolutePosition + main.AbsoluteSize * main.AnchorPoint
+        local center = collapsedShell.AbsolutePosition + collapsedShell.AbsoluteSize * collapsedShell.AnchorPoint
         collapsedStart = point
         collapsedOffset = center - point
         collapsedDragging = true
         collapsedMoved = false
     end))
 
-    -- Fallback for a plain click/tap. The drag path below still wins when the
-    -- pointer actually moves, but a normal press reliably restores the window.
-    registerConnection(window, collapsedInteract.MouseButton1Click:Connect(function()
+    -- Activated is more reliable here than MouseButton1Click and also supports
+    -- touch/gamepad. The drag path still wins if the pointer actually moved.
+    registerConnection(window, collapsedInteract.Activated:Connect(function()
         if window.hidden and not window.animating and not collapsedMoved then
             window:Show()
+        end
+    end))
+
+    registerConnection(window, collapsedInteract.MouseEnter:Connect(function()
+        if window.hidden and not window.animating then
+            tween(collapsedShellStroke, TWEEN.Hover, { Transparency = 0.38 })
+            if collapsedShellShadow then
+                tween(collapsedShellShadow, TWEEN.Hover, { Transparency = 0.48 })
+            end
+        end
+    end))
+
+    registerConnection(window, collapsedInteract.MouseLeave:Connect(function()
+        tween(collapsedShellStroke, TWEEN.Hover, { Transparency = 0.6 })
+        if collapsedShellShadow then
+            tween(collapsedShellShadow, TWEEN.Hover, { Transparency = 0.6 })
         end
     end))
 
@@ -1883,7 +1971,7 @@ function Aether:CreateWindow(config)
 
         collapsedDragging = false
         if collapsedMoved then
-            window._collapsedPosition = main.Position
+            window._collapsedPosition = collapsedShell.Position
         elseif window.hidden and not window.animating then
             window:Show()
         end
@@ -1903,7 +1991,7 @@ function Aether:CreateWindow(config)
 
         collapsedMoved = true
         local target = mouse + collapsedOffset
-        main.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y))
+        collapsedShell.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y))
     end))
 
     local dragging = false
