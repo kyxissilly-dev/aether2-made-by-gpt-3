@@ -2,12 +2,13 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local TextService = game:GetService("TextService")
 
 local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.5.2"
+Aether.Version = "0.5.3"
 
 local DefaultTheme = {
     Window = Color3.fromRGB(18, 18, 19),
@@ -31,6 +32,10 @@ local DefaultTheme = {
     Muted = Color3.fromRGB(112, 112, 119),
     Field = Color3.fromRGB(24, 24, 25),
     FieldHover = Color3.fromRGB(29, 29, 30),
+    SliderBackground = Color3.fromRGB(47, 47, 47),
+    SliderBackgroundHover = Color3.fromRGB(60, 60, 60),
+    SliderHandle = Color3.fromRGB(255, 255, 255),
+    SliderStroke = Color3.fromRGB(255, 255, 255),
     Accent = Color3.fromRGB(23, 153, 110),
     AccentStroke = Color3.fromRGB(32, 201, 144),
     AccentGlow = 0.4,
@@ -454,6 +459,50 @@ local function hexToColor(value)
         tonumber(value:sub(3, 4), 16),
         tonumber(value:sub(5, 6), 16)
     )
+end
+
+local function measureTextHeight(text, fontFace, textSize, width)
+    text = tostring(text or "")
+
+    if text == "" then
+        return 0
+    end
+
+    local params = Instance.new("GetTextBoundsParams")
+    params.Text = text
+    params.Font = fontFace
+    params.Size = textSize
+    params.Width = math.max(width, 1)
+
+    local ok, bounds = pcall(TextService.GetTextBoundsAsync, TextService, params)
+    params:Destroy()
+
+    if ok and bounds then
+        return math.max(textSize, math.ceil(bounds.Y))
+    end
+
+    local approximateCharacters = math.max(1, math.floor(width / math.max(textSize * 0.52, 1)))
+    local lines = math.max(1, math.ceil(#text / approximateCharacters))
+    return math.ceil(lines * textSize * 1.2)
+end
+
+local function sliderDecimalPlaces(increment)
+    local decimals = 0
+
+    while decimals < 6 do
+        local scaled = increment * 10 ^ decimals
+        if math.abs(scaled - math.round(scaled)) < 1e-9 then
+            break
+        end
+        decimals += 1
+    end
+
+    return decimals
+end
+
+local function snapSliderValue(minimum, maximum, increment, value)
+    local snapped = minimum + math.round((value - minimum) / increment) * increment
+    return math.clamp(snapped, minimum, maximum)
 end
 
 local Window = {}
@@ -1069,7 +1118,7 @@ end
 function Tab:CreateSlider(options)
     options = type(options) == "table" and options or {}
 
-    local base = createBaseElement(self, 62, options, 225)
+    local base = createBaseElement(self, 65, options, 250)
     local window = self.window
     local callback = option(options, "callback", "Callback") or function() end
     local minimum = tonumber(option(options, "min", "Min")) or 0
@@ -1087,92 +1136,105 @@ function Tab:CreateSlider(options)
         increment = 1
     end
 
-    local initial = tonumber(option(options, "value", "Value", "default", "Default")) or minimum
-    initial = math.clamp(initial, minimum, maximum)
+    suffix = suffix:gsub("^%s+", ""):gsub("%s+$", "")
 
-    local valuePill = create("Frame", {
+    local initial = tonumber(option(options, "value", "Value", "currentValue", "CurrentValue", "default", "Default"))
+    if initial == nil then
+        initial = minimum
+    end
+    initial = snapSliderValue(minimum, maximum, increment, initial)
+
+    base.content.AnchorPoint = Vector2.new(0, 0)
+    base.content.Position = UDim2.fromOffset(20, 16)
+    base.content.Size = UDim2.fromOffset(170, 18)
+
+    local valueLabel = create("TextLabel", {
         Parent = base.main,
-        AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -14, 0, 10),
-        Size = UDim2.fromOffset(86, 20),
-        BackgroundColor3 = window.theme.Window2,
-        BackgroundTransparency = 0.08,
+        Position = UDim2.fromOffset(20, 35),
+        Size = UDim2.fromOffset(170, 16),
+        BackgroundTransparency = 1,
+        Text = "",
+        TextColor3 = window.theme.Text,
+        TextTransparency = 0.3,
+        TextSize = 15,
+        FontFace = FontRegular,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
         ZIndex = 6
     })
 
-    corner(valuePill, 999)
-    stroke(valuePill, window.theme.StrokeSoft, 0.2, 1)
+    local track = create("Frame", {
+        Parent = base.main,
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -15, 0.5, 0),
+        Size = UDim2.fromOffset(222, 14),
+        BackgroundColor3 = window.theme.SliderBackground,
+        BackgroundTransparency = 0,
+        ZIndex = 6
+    })
 
-    local valueLabel = create("TextLabel", {
-        Parent = valuePill,
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        Text = "",
-        TextColor3 = window.theme.Secondary,
-        TextSize = 12,
-        FontFace = FontMedium,
-        TextXAlignment = Enum.TextXAlignment.Center,
+    corner(track, 13)
+
+    local progress = create("Frame", {
+        Parent = track,
+        AnchorPoint = Vector2.new(0, 0.5),
+        Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.fromScale(0, 1),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundTransparency = 0,
         ZIndex = 7
     })
 
-    local sliderHitbox = create("TextButton", {
-        Parent = base.main,
-        AnchorPoint = Vector2.new(1, 1),
-        Position = UDim2.new(1, -16, 1, -4),
-        Size = UDim2.fromOffset(192, 26),
+    corner(progress, 13)
+
+    create("UIGradient", {
+        Parent = progress,
+        Rotation = 2,
+        Offset = Vector2.new(0, 0.5),
+        Color = ColorSequence.new(window.theme.Accent),
+        Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.85),
+            NumberSequenceKeypoint.new(1, 0)
+        })
+    })
+
+    local progressGlow = shadow(
+        progress,
+        window.theme.Accent,
+        20,
+        math.max(0.55, window.theme.AccentGlow)
+    )
+
+    local handle = create("Frame", {
+        Parent = progress,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(1, 0, 0.5, 0),
+        Size = UDim2.fromOffset(35, 20),
+        BackgroundColor3 = window.theme.SliderHandle,
+        BackgroundTransparency = 0,
+        ZIndex = 50
+    })
+
+    corner(handle, 999)
+
+    local handleStroke = stroke(handle, window.theme.SliderStroke, 1, 1)
+    local handleGlow = shadow(handle, Color3.fromRGB(255, 255, 255), 10, 0.8)
+
+    local interact = create("TextButton", {
+        Parent = track,
+        Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         Text = "",
         TextTransparency = 1,
         AutoButtonColor = false,
         Active = true,
-        ZIndex = 9
+        ZIndex = 60
     })
 
-    local bar = create("Frame", {
-        Parent = sliderHitbox,
-        AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.new(0, 0, 0.5, 0),
-        Size = UDim2.new(1, 0, 0, 4),
-        BackgroundColor3 = window.theme.StrokeSoft,
-        BackgroundTransparency = 0.35,
-        ZIndex = 10
+    local displayValue = create("NumberValue", {
+        Parent = base.main,
+        Value = initial
     })
-
-    corner(bar, 999)
-
-    local fill = create("Frame", {
-        Parent = bar,
-        Size = UDim2.fromScale(0, 1),
-        BackgroundColor3 = window.theme.Accent,
-        ZIndex = 11
-    })
-
-    corner(fill, 999)
-
-    local fillGlow = shadow(fill, window.theme.Accent, 12, 0.65, nil, UDim2.new(0, 8, 0, -18))
-
-    local knob = create("Frame", {
-        Parent = bar,
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0, 0.5),
-        Size = UDim2.fromOffset(14, 14),
-        BackgroundColor3 = window.theme.Window,
-        ZIndex = 12
-    })
-
-    corner(knob, 999)
-    stroke(knob, window.theme.AccentStroke, 0, 1.2)
-
-    local knobInner = create("Frame", {
-        Parent = knob,
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromOffset(6, 6),
-        BackgroundColor3 = window.theme.Accent,
-        ZIndex = 13
-    })
-
-    corner(knobInner, 999)
 
     local control = setmetatable({
         window = window,
@@ -1188,131 +1250,251 @@ function Tab:CreateSlider(options)
         maximum = maximum,
         increment = increment,
         suffix = suffix,
-        bar = bar,
-        hitbox = sliderHitbox,
-        fill = fill,
-        fillGlow = fillGlow,
-        knob = knob,
-        knobInner = knobInner,
-        valuePill = valuePill,
+        decimals = sliderDecimalPlaces(increment),
+        content = base.content,
         valueLabel = valueLabel,
-        dragging = false
+        displayValue = displayValue,
+        track = track,
+        bar = track,
+        hitbox = interact,
+        interact = interact,
+        progress = progress,
+        fill = progress,
+        progressGlow = progressGlow,
+        fillGlow = progressGlow,
+        handle = handle,
+        knob = handle,
+        handleStroke = handleStroke,
+        handleGlow = handleGlow,
+        dragging = false,
+        dragInput = nil,
+        _dragConnection = nil,
+        _displayTween = nil,
+        _layoutMode = nil
     }, Slider)
 
     window.controls[flag] = control
     window.Flags[flag] = initial
-    control:_render(true)
+
+    registerConnection(window, displayValue:GetPropertyChangedSignal("Value"):Connect(function()
+        valueLabel.Text = control:_format(displayValue.Value)
+    end))
 
     local function updateFromX(x)
-        local ratio = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
-        local raw = minimum + (maximum - minimum) * ratio
-        local snapped = math.floor((raw - minimum) / increment + 0.5) * increment + minimum
-        control:Set(math.clamp(snapped, minimum, maximum))
+        local width = math.max(track.AbsoluteSize.X, 1)
+        local ratio = math.clamp((x - track.AbsolutePosition.X) / width, 0, 1)
+        local raw = minimum + ratio * (maximum - minimum)
+        local value = snapSliderValue(minimum, maximum, increment, raw)
+
+        if value == control.value then
+            return
+        end
+
+        control.value = value
+        window.Flags[flag] = value
+        control:_render(false, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), true)
+        safeCallback("slider", callback, value)
     end
 
-    registerConnection(window, sliderHitbox.InputBegan:Connect(function(input)
+    function control:_currentPointerX()
+        if self.dragInput then
+            return self.dragInput.Position.X
+        end
+        return UserInputService:GetMouseLocation().X
+    end
+
+    function control:_setHeld(held)
+        local size = held and Vector2.new(41, 22) or Vector2.new(35, 20)
+        local animation = TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
+
+        tween(self.handle, animation, {
+            Size = UDim2.fromOffset(size.X, size.Y),
+            BackgroundTransparency = held and 0.7 or 0
+        })
+        tween(self.handleStroke, animation, {
+            Transparency = held and 0.6 or 1
+        })
+        self:_render(false, animation, true)
+    end
+
+    function control:_endDrag()
+        if not self.dragging then
+            return
+        end
+
+        self.dragging = false
+        self.dragInput = nil
+        self:_setHeld(false)
+
+        if self._dragConnection then
+            self._dragConnection:Disconnect()
+            self._dragConnection = nil
+        end
+    end
+
+    function control:_beginDrag(input)
+        if self.dragging or self.window.destroyed then
+            return
+        end
+
+        self.dragging = true
+        self.dragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
+        self:_setHeld(true)
+        updateFromX(self:_currentPointerX())
+
+        if self._dragConnection then
+            self._dragConnection:Disconnect()
+            self._dragConnection = nil
+        end
+
+        self._dragConnection = RunService.RenderStepped:Connect(function()
+            if self.window.destroyed or not self.dragging or not self.main.Parent then
+                self:_endDrag()
+                return
+            end
+
+            updateFromX(self:_currentPointerX())
+        end)
+    end
+
+    registerConnection(window, base.main.MouseEnter:Connect(function()
+        if window.destroyed then
+            return
+        end
+        tween(track, TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            BackgroundColor3 = window.theme.SliderBackgroundHover
+        })
+    end))
+
+    registerConnection(window, base.main.MouseLeave:Connect(function()
+        tween(track, TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            BackgroundColor3 = window.theme.SliderBackground
+        })
+    end))
+
+    registerConnection(window, interact.InputBegan:Connect(function(input)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
-
-        control.dragging = true
-        control.dragInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
-
-        if control.dragInput then
-            updateFromX(control.dragInput.Position.X)
-        else
-            updateFromX(UserInputService:GetMouseLocation().X)
-        end
-    end))
-
-    registerConnection(window, sliderHitbox.MouseEnter:Connect(function()
-        tween(control.valuePill, Tweens.Hover, {BackgroundTransparency = 0})
-        if control.fillGlow then
-            tween(control.fillGlow, Tweens.Hover, {Transparency = 0.45})
-        end
-    end))
-
-    registerConnection(window, sliderHitbox.MouseLeave:Connect(function()
-        if control.dragging then
-            return
-        end
-
-        tween(control.valuePill, Tweens.Hover, {BackgroundTransparency = 0.08})
-        if control.fillGlow then
-            tween(control.fillGlow, Tweens.Hover, {Transparency = 0.65})
-        end
-    end))
-
-    registerConnection(window, UserInputService.InputChanged:Connect(function(input)
-        if not control.dragging or window.destroyed then
-            return
-        end
-
-        if control.dragInput then
-            if input ~= control.dragInput then
-                return
-            end
-            updateFromX(input.Position.X)
-            return
-        end
-
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            updateFromX(UserInputService:GetMouseLocation().X)
-        end
+        control:_beginDrag(input)
     end))
 
     registerConnection(window, UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input == control.dragInput then
-            control.dragging = false
-            control.dragInput = nil
-            tween(control.valuePill, Tweens.Hover, {BackgroundTransparency = 0.08})
-            if control.fillGlow then
-                tween(control.fillGlow, Tweens.Hover, {Transparency = 0.65})
+        if not control.dragging then
+            return
+        end
+
+        if control.dragInput then
+            if input == control.dragInput then
+                control:_endDrag()
             end
+            return
+        end
+
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            control:_endDrag()
         end
     end))
 
     registerConnection(window, UserInputService.WindowFocusReleased:Connect(function()
-        control.dragging = false
-        control.dragInput = nil
+        control:_endDrag()
     end))
+
+    registerConnection(window, base.main:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        if not window.destroyed then
+            control:_applyLayout()
+        end
+    end))
+
+    control:_applyLayout()
+    control:_render(true, nil, true)
 
     return self:_addElement(control)
 end
 
-function Slider:_render(instant)
-    local range = self.maximum - self.minimum
-    local ratio = range == 0 and 0 or (self.value - self.minimum) / range
-    ratio = math.clamp(ratio, 0, 1)
+function Slider:_format(value)
+    local formatted = string.format("%." .. self.decimals .. "f", value)
+    if self.suffix ~= "" then
+        return formatted .. " " .. self.suffix
+    end
+    return formatted
+end
 
-    local fillWidth = math.max(0, ratio)
-    local fillSize = UDim2.new(fillWidth, 0, 1, 0)
-    local knobPosition = UDim2.fromScale(ratio, 0.5)
+function Slider:_applyLayout()
+    local width = self.main.AbsoluteSize.X
+    local mode = width > 0 and width < 430 and "narrow" or "wide"
 
-    if instant then
-        self.fill.Size = fillSize
-        self.knob.Position = knobPosition
-    else
-        tween(self.fill, Tweens.Fast, {Size = fillSize})
-        tween(self.knob, Tweens.Fast, {Position = knobPosition})
+    if self._layoutMode == mode then
+        return
     end
 
-    local incrementString = tostring(self.increment)
-    local decimalMatch = incrementString:match("%.(%d+)")
-    local decimals = decimalMatch and #decimalMatch or 0
-    local formatted = decimals > 0 and string.format("%." .. decimals .. "f", self.value) or tostring(math.floor(self.value + 0.5))
-    self.valueLabel.Text = formatted .. self.suffix
+    self._layoutMode = mode
+
+    if mode == "narrow" then
+        self.main.Size = UDim2.new(1, -20, 0, 70)
+        self.content.AnchorPoint = Vector2.new(0, 0)
+        self.content.Position = UDim2.fromOffset(20, 14)
+        self.content.Size = UDim2.new(1, -150, 0, 18)
+        self.valueLabel.AnchorPoint = Vector2.new(1, 0)
+        self.valueLabel.Position = UDim2.new(1, -20, 0, 14)
+        self.valueLabel.Size = UDim2.fromOffset(105, 18)
+        self.valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+        self.track.AnchorPoint = Vector2.new(0.5, 1)
+        self.track.Position = UDim2.new(0.5, 0, 1, -14)
+        self.track.Size = UDim2.new(1, -30, 0, 14)
+    else
+        self.main.Size = UDim2.new(1, -20, 0, 65)
+        self.content.AnchorPoint = Vector2.new(0, 0)
+        self.content.Position = UDim2.fromOffset(20, 16)
+        self.content.Size = UDim2.fromOffset(170, 18)
+        self.valueLabel.AnchorPoint = Vector2.new(0, 0)
+        self.valueLabel.Position = UDim2.fromOffset(20, 35)
+        self.valueLabel.Size = UDim2.fromOffset(170, 16)
+        self.valueLabel.TextXAlignment = Enum.TextXAlignment.Left
+        self.track.AnchorPoint = Vector2.new(1, 0.5)
+        self.track.Position = UDim2.new(1, -15, 0.5, 0)
+        self.track.Size = UDim2.fromOffset(222, 14)
+    end
+end
+
+function Slider:_render(instant, animation, snapDisplay)
+    local range = self.maximum - self.minimum
+    local ratio = range == 0 and 0 or math.clamp((self.value - self.minimum) / range, 0, 1)
+    local target = UDim2.new(ratio, 0, 1, 0)
+
+    if instant then
+        self.progress.Size = target
+    else
+        tween(
+            self.progress,
+            animation or TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+            {Size = target}
+        )
+    end
+
+    if self._displayTween then
+        pcall(self._displayTween.Cancel, self._displayTween)
+        self._displayTween = nil
+    end
+
+    if instant or snapDisplay then
+        self.displayValue.Value = self.value
+    else
+        self._displayTween = tween(
+            self.displayValue,
+            TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+            {Value = self.value}
+        )
+    end
 end
 
 function Slider:Set(value, silent)
     value = tonumber(value) or self.minimum
-    value = math.clamp(value, self.minimum, self.maximum)
-    value = math.floor((value - self.minimum) / self.increment + 0.5) * self.increment + self.minimum
-    value = math.clamp(value, self.minimum, self.maximum)
+    value = snapSliderValue(self.minimum, self.maximum, self.increment, value)
 
     self.value = value
     self.window.Flags[self.flag] = value
-    self:_render(false)
+    self:_render(false, TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), false)
 
     if not silent then
         safeCallback("slider", self.callback, value)
@@ -1329,6 +1511,21 @@ function Slider:SetName(name)
     self.name = tostring(name)
     self.searchName = string.lower(self.name)
     self.title.Text = self.name
+end
+
+function Slider:_cleanup()
+    self.dragging = false
+    self.dragInput = nil
+
+    if self._dragConnection then
+        pcall(self._dragConnection.Disconnect, self._dragConnection)
+        self._dragConnection = nil
+    end
+
+    if self._displayTween then
+        pcall(self._displayTween.Cancel, self._displayTween)
+        self._displayTween = nil
+    end
 end
 
 function Tab:CreateDropdown(options)
@@ -2381,10 +2578,20 @@ end
 function Window:Notify(options)
     options = type(options) == "table" and options or {Description = tostring(options or "Notification")}
 
-    local titleText = option(options, "title", "Title") or "Notification"
-    local description = option(options, "description", "Description", "text", "Text") or ""
-    local duration = tonumber(option(options, "duration", "Duration")) or 4
+    if self.destroyed then
+        return nil
+    end
+
+    local titleText = tostring(option(options, "title", "Title") or "Notification")
+    local description = tostring(option(options, "description", "Description", "content", "Content", "text", "Text") or "")
     local typeName = string.lower(tostring(option(options, "type", "Type") or "info"))
+    local requestedIcon = option(options, "icon", "Icon")
+    local duration = tonumber(option(options, "duration", "Duration"))
+
+    if duration == nil then
+        duration = math.clamp(#description * 0.06 + 3, 3, 9)
+    end
+    duration = math.max(duration, 0.1)
 
     local typeColors = {
         info = self.theme.Info,
@@ -2398,199 +2605,381 @@ function Window:Notify(options)
         info = "i",
         success = "✓",
         warning = "!",
-        error = "!",
-        danger = "!"
+        error = "×",
+        danger = "×"
     }
 
     local accent = typeColors[typeName] or self.theme.Info
     local symbol = typeSymbols[typeName] or "i"
-    local height = description ~= "" and 82 or 64
+    local explicitIcon = requestedIcon ~= nil and requestedIcon ~= 0 and requestedIcon ~= ""
+    local hasIcon = explicitIcon or typeSymbols[typeName] ~= nil
+    local textWidth = hasIcon and 222 or 260
+    local titleHeight = measureTextHeight(titleText, FontSemiBold, 16, textWidth)
+    local descriptionHeight = description ~= "" and measureTextHeight(description, FontRegular, 15, textWidth) or 0
+    local contentHeight = titleHeight + (descriptionHeight > 0 and 4 + descriptionHeight or 0)
+    local bodyHeight = math.max(contentHeight, hasIcon and 24 or 0) + 28
+    local targetHeight = bodyHeight + 8
 
-    local notification = create("CanvasGroup", {
+    self._notificationCount = (self._notificationCount or 0) + 1
+    self._liveNotifications = self._liveNotifications or {}
+    self._notificationRecords = self._notificationRecords or {}
+
+    local wrapper = create("Frame", {
         Parent = self.notificationList,
-        Size = UDim2.fromOffset(310, height),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BackgroundTransparency = 0,
-        GroupTransparency = 1,
-        ClipsDescendants = true,
+        Name = "Notification",
+        Size = UDim2.new(1, 0, 0, 0),
+        BackgroundTransparency = 1,
+        LayoutOrder = self._notificationCount,
         ZIndex = 900
     })
 
-    corner(notification, 16)
-    local notificationStroke = stroke(notification, self.theme.Stroke, 0.05, 1)
-    local notificationShadow = shadow(notification, self.theme.Shadow, 26, 0.42)
-
-    create("UIGradient", {
-        Parent = notification,
-        Rotation = 270,
-        Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, self.theme.Element),
-            ColorSequenceKeypoint.new(0.72, self.theme.Element2),
-            ColorSequenceKeypoint.new(1, self.theme.Element2)
-        })
+    create("UIPadding", {
+        Parent = wrapper,
+        PaddingTop = UDim.new(0, 8)
     })
 
-    local sheen = create("Frame", {
-        Parent = notification,
-        Size = UDim2.fromScale(1, 1),
+    local body = create("Frame", {
+        Parent = wrapper,
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 360, 0.5, 0),
+        Size = UDim2.new(1, 0, 1, 0),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BackgroundTransparency = 0.985,
+        BackgroundTransparency = 1,
+        Active = true,
         ZIndex = 901
     })
 
-    corner(sheen, 16)
+    corner(body, 18)
 
-    local icon = create("Frame", {
-        Parent = notification,
-        AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.new(0, 14, 0.5, 0),
-        Size = UDim2.fromOffset(30, 30),
-        BackgroundColor3 = accent,
-        BackgroundTransparency = 0.84,
+    create("UIGradient", {
+        Parent = body,
+        Rotation = 270,
+        Offset = Vector2.new(0, -0.1),
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, self.theme.Window),
+            ColorSequenceKeypoint.new(0.9999, self.theme.Window2),
+            ColorSequenceKeypoint.new(1, self.theme.Element)
+        })
+    })
+
+    local bodyStroke = stroke(body, self.theme.Text, 1, 1)
+    local bodyShadow = shadow(body, self.theme.Shadow, 20, 1)
+
+    create("UIPadding", {
+        Parent = body,
+        PaddingLeft = UDim.new(0, 20),
+        PaddingRight = UDim.new(0, 20)
+    })
+
+    create("UIListLayout", {
+        Parent = body,
+        FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center,
+        HorizontalAlignment = Enum.HorizontalAlignment.Left,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 14)
+    })
+
+    local iconGroup
+
+    if hasIcon then
+        iconGroup = create("CanvasGroup", {
+            Parent = body,
+            Size = UDim2.fromOffset(24, 24),
+            BackgroundTransparency = 1,
+            GroupTransparency = 1,
+            LayoutOrder = 1,
+            ZIndex = 902
+        })
+
+        if explicitIcon then
+            local visual = makeIcon(iconGroup, requestedIcon, self.theme.Text, 24, titleText)
+            visual.AnchorPoint = Vector2.new(0.5, 0.5)
+            visual.Position = UDim2.fromScale(0.5, 0.5)
+        else
+            create("TextLabel", {
+                Parent = iconGroup,
+                Size = UDim2.fromScale(1, 1),
+                BackgroundTransparency = 1,
+                Text = symbol,
+                TextColor3 = accent,
+                TextSize = typeName == "success" and 18 or 17,
+                FontFace = FontSemiBold,
+                TextXAlignment = Enum.TextXAlignment.Center,
+                TextYAlignment = Enum.TextYAlignment.Center,
+                ZIndex = 903
+            })
+        end
+    end
+
+    local textContainer = create("Frame", {
+        Parent = body,
+        Size = UDim2.fromOffset(textWidth, contentHeight),
+        BackgroundTransparency = 1,
+        LayoutOrder = 2,
         ZIndex = 902
     })
 
-    corner(icon, 10)
-    stroke(icon, accent, 0.28, 1)
-    shadow(icon, accent, 18, 0.72)
-
-    create("TextLabel", {
-        Parent = icon,
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        Text = symbol,
-        TextColor3 = accent,
-        TextSize = typeName == "success" and 16 or 15,
-        FontFace = FontSemiBold,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        TextYAlignment = Enum.TextYAlignment.Center,
-        ZIndex = 903
+    create("UIListLayout", {
+        Parent = textContainer,
+        FillDirection = Enum.FillDirection.Vertical,
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Padding = UDim.new(0, 4)
     })
 
-    local title = create("TextLabel", {
-        Parent = notification,
-        Position = UDim2.fromOffset(56, description ~= "" and 12 or 0),
-        Size = UDim2.new(1, -94, 0, description ~= "" and 21 or height),
+    local titleLabel = create("TextLabel", {
+        Parent = textContainer,
+        Size = UDim2.new(1, 0, 0, titleHeight),
         BackgroundTransparency = 1,
         Text = titleText,
         TextColor3 = self.theme.Text,
-        TextSize = 15,
+        TextSize = 16,
         FontFace = FontSemiBold,
+        TextWrapped = true,
         TextXAlignment = Enum.TextXAlignment.Left,
-        TextYAlignment = Enum.TextYAlignment.Center,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        ZIndex = 902
+        TextYAlignment = Enum.TextYAlignment.Top,
+        TextTransparency = 1,
+        LayoutOrder = 1,
+        ZIndex = 903
     })
 
+    local descriptionLabel
+
     if description ~= "" then
-        create("TextLabel", {
-            Parent = notification,
-            Position = UDim2.fromOffset(56, 34),
-            Size = UDim2.new(1, -76, 0, 30),
+        descriptionLabel = create("TextLabel", {
+            Parent = textContainer,
+            Size = UDim2.new(1, 0, 0, descriptionHeight),
             BackgroundTransparency = 1,
             Text = description,
-            TextColor3 = self.theme.Secondary,
-            TextTransparency = 0.12,
-            TextSize = 13,
+            TextColor3 = self.theme.Text,
+            TextSize = 15,
             FontFace = FontRegular,
             TextWrapped = true,
             TextXAlignment = Enum.TextXAlignment.Left,
             TextYAlignment = Enum.TextYAlignment.Top,
-            ZIndex = 902
+            TextTransparency = 1,
+            LayoutOrder = 2,
+            ZIndex = 903
         })
     end
 
-    local close = create("TextButton", {
-        Parent = notification,
-        AnchorPoint = Vector2.new(1, 0),
-        Position = UDim2.new(1, -10, 0, 10),
-        Size = UDim2.fromOffset(20, 20),
-        BackgroundTransparency = 1,
-        Text = "",
-        AutoButtonColor = false,
-        ZIndex = 905
-    })
+    local record = {
+        Instance = wrapper,
+        Body = body,
+        _connections = {},
+        _dismissed = false,
+        _hovered = false
+    }
 
-    local closeIcon, closeA, closeB = makeCloseIcon(close, self.theme.Muted)
-    closeIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-    closeIcon.Position = UDim2.fromScale(0.5, 0.5)
-    closeIcon.Size = UDim2.fromOffset(16, 16)
+    local function connect(signal, callback)
+        local connection = signal:Connect(callback)
+        table.insert(record._connections, connection)
+        return connection
+    end
 
-    local progressTrack = create("Frame", {
-        Parent = notification,
-        AnchorPoint = Vector2.new(0, 1),
-        Position = UDim2.new(0, 14, 1, -7),
-        Size = UDim2.new(1, -28, 0, 2),
-        BackgroundColor3 = self.theme.StrokeSoft,
-        BackgroundTransparency = 0.68,
-        ZIndex = 902
-    })
+    local function disconnectAll()
+        for _, connection in ipairs(record._connections) do
+            pcall(connection.Disconnect, connection)
+        end
+        table.clear(record._connections)
+    end
 
-    corner(progressTrack, 99)
-
-    local progress = create("Frame", {
-        Parent = progressTrack,
-        Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = accent,
-        BackgroundTransparency = 0.15,
-        ZIndex = 903
-    })
-
-    corner(progress, 99)
-
-    local dead = false
-
-    local function remove()
-        if dead then
+    local function removeFromLive()
+        if not self._liveNotifications then
             return
         end
 
-        dead = true
-
-        tween(notificationStroke, Tweens.Fast, {Transparency = 1})
-        if notificationShadow then
-            tween(notificationShadow, Tweens.Fast, {Transparency = 1})
+        local index = table.find(self._liveNotifications, record)
+        if index then
+            table.remove(self._liveNotifications, index)
         end
-        tween(notification, Tweens.Fast, {
-            GroupTransparency = 1,
-            Position = UDim2.fromOffset(24, 0)
-        })
-
-        task.delay(0.18, function()
-            if notification.Parent then
-                notification:Destroy()
-            end
-        end)
     end
 
-    registerConnection(self, close.MouseEnter:Connect(function()
-        tween(closeA, Tweens.Hover, {BackgroundColor3 = self.theme.Text})
-        tween(closeB, Tweens.Hover, {BackgroundColor3 = self.theme.Text})
-    end))
+    local function removeFromRecords()
+        if not self._notificationRecords then
+            return
+        end
 
-    registerConnection(self, close.MouseLeave:Connect(function()
-        tween(closeA, Tweens.Hover, {BackgroundColor3 = self.theme.Muted})
-        tween(closeB, Tweens.Hover, {BackgroundColor3 = self.theme.Muted})
-    end))
+        local index = table.find(self._notificationRecords, record)
+        if index then
+            table.remove(self._notificationRecords, index)
+        end
+    end
 
-    registerConnection(self, close.MouseButton1Click:Connect(remove))
+    local function destroyNow()
+        if record._dismissed then
+            removeFromLive()
+            removeFromRecords()
+            disconnectAll()
+            if wrapper.Parent then
+                wrapper:Destroy()
+            end
+            return
+        end
 
-    notification.Position = UDim2.fromOffset(30, 0)
-    tween(notification, Tweens.Reveal, {
-        GroupTransparency = 0,
-        Position = UDim2.fromOffset(0, 0)
-    })
+        record._dismissed = true
+        removeFromLive()
+        removeFromRecords()
+        disconnectAll()
 
-    tween(progress, TweenInfo.new(math.max(duration, 0.1), Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 0, 1, 0)
-    })
+        if wrapper.Parent then
+            wrapper:Destroy()
+        end
+    end
 
-    task.delay(math.max(duration, 0.1), remove)
+    local function dismiss()
+        if record._dismissed then
+            return
+        end
 
-    return {
-        Close = remove,
-        Instance = notification
-    }
+        record._dismissed = true
+        removeFromLive()
+
+        if not wrapper.Parent then
+            disconnectAll()
+            return
+        end
+
+        tween(body, TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 1
+        })
+        tween(bodyStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Transparency = 1
+        })
+        if bodyShadow then
+            tween(bodyShadow, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                Transparency = 1
+            })
+        end
+        tween(titleLabel, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            TextTransparency = 1
+        })
+        if descriptionLabel then
+            tween(descriptionLabel, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                TextTransparency = 1
+            })
+        end
+        if iconGroup then
+            tween(iconGroup, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                GroupTransparency = 1
+            })
+        end
+
+        tween(body, TweenInfo.new(0.9, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, -90, 1, 0)
+        })
+
+        local collapse = tween(wrapper, TweenInfo.new(0.9, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, 0, 0, 0)
+        })
+
+        local function finish()
+            removeFromRecords()
+            disconnectAll()
+            if wrapper.Parent then
+                wrapper:Destroy()
+            end
+        end
+
+        if collapse then
+            collapse.Completed:Once(finish)
+        else
+            task.delay(0.92, finish)
+        end
+    end
+
+    record.Close = dismiss
+    record._destroyImmediately = destroyNow
+
+    table.insert(self._liveNotifications, record)
+    table.insert(self._notificationRecords, record)
+
+    while #self._liveNotifications > 6 do
+        local oldest = table.remove(self._liveNotifications, 1)
+        if oldest and oldest ~= record and oldest.Close then
+            task.spawn(oldest.Close)
+        end
+    end
+
+    connect(body.MouseEnter, function()
+        record._hovered = true
+    end)
+
+    connect(body.MouseLeave, function()
+        record._hovered = false
+    end)
+
+    connect(body.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dismiss()
+        end
+    end)
+
+    task.spawn(function()
+        if record._dismissed or self.destroyed or not wrapper.Parent then
+            return
+        end
+
+        tween(wrapper, TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Size = UDim2.new(1, 0, 0, targetHeight)
+        })
+        tween(body, TweenInfo.new(0.6, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, 0, 0.5, 0)
+        })
+        tween(body, TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 0
+        })
+        tween(bodyStroke, TweenInfo.new(0.4, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            Transparency = 0.95
+        })
+        if bodyShadow then
+            tween(bodyShadow, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                Transparency = 0.6
+            })
+        end
+        tween(titleLabel, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+            TextTransparency = 0
+        })
+
+        task.wait(0.05)
+
+        if record._dismissed or self.destroyed or not wrapper.Parent then
+            return
+        end
+
+        if iconGroup then
+            tween(iconGroup, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                GroupTransparency = 0
+            })
+        end
+
+        task.wait(0.05)
+
+        if record._dismissed or self.destroyed or not wrapper.Parent then
+            return
+        end
+
+        if descriptionLabel then
+            tween(descriptionLabel, TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+                TextTransparency = 0.35
+            })
+        end
+
+        local elapsed = 0
+
+        while elapsed < duration and not record._dismissed and not self.destroyed and wrapper.Parent do
+            local delta = task.wait()
+            if not record._hovered then
+                elapsed += delta
+            end
+        end
+
+        if not record._dismissed then
+            dismiss()
+        end
+    end)
+
+    return record
 end
 
 function Window:Minimize(state)
@@ -2848,6 +3237,29 @@ function Window:Toggle()
 end
 
 function Window:_cleanup()
+    if self.controls then
+        for _, control in pairs(self.controls) do
+            if type(control) == "table" and control._cleanup then
+                pcall(control._cleanup, control)
+            end
+        end
+    end
+
+    if self._notificationRecords then
+        local records = table.clone(self._notificationRecords)
+        table.clear(self._notificationRecords)
+
+        if self._liveNotifications then
+            table.clear(self._liveNotifications)
+        end
+
+        for _, notification in ipairs(records) do
+            if notification and notification._destroyImmediately then
+                pcall(notification._destroyImmediately)
+            end
+        end
+    end
+
     for _, connection in ipairs(self._connections) do
         pcall(connection.Disconnect, connection)
     end
@@ -2929,7 +3341,7 @@ function Aether:CreateWindow(options)
         Parent = screen,
         AnchorPoint = Vector2.new(1, 1),
         Position = UDim2.new(1, -20, 1, -20),
-        Size = UDim2.fromOffset(320, 420),
+        Size = UDim2.fromOffset(300, 800),
         BackgroundTransparency = 1,
         ZIndex = 890
     })
@@ -2947,9 +3359,9 @@ function Aether:CreateWindow(options)
         Parent = notificationList,
         FillDirection = Enum.FillDirection.Vertical,
         VerticalAlignment = Enum.VerticalAlignment.Bottom,
-        HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
         SortOrder = Enum.SortOrder.LayoutOrder,
-        Padding = UDim.new(0, 8)
+        Padding = UDim.new(0, 0)
     })
 
     local main = create("CanvasGroup", {
@@ -3411,6 +3823,9 @@ function Aether:CreateWindow(options)
         _restorePosition = nil,
         _collapsedPosition = nil,
         _openPopup = nil,
+        _liveNotifications = {},
+        _notificationRecords = {},
+        _notificationCount = 0,
         searchOpen = false,
         _connections = {}
     }, Window)
