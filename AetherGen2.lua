@@ -1,13 +1,14 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.4.4"
+Aether.Version = "0.4.5"
 
 local DEFAULT = {
     Window = Color3.fromRGB(18, 18, 19),
@@ -1164,10 +1165,15 @@ function Window:Show()
     local chromeInfo = TweenInfo.new(0.28, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
     local collapsedFade = TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
+    self.collapsedInteract.Visible = true
     self.collapsedInteract.Active = true
     tween(self.collapsedFace, collapsedFade, { GroupTransparency = 1 })
 
     local movement = tween(self.collapsedShell, moveInfo, {
+        Size = UDim2.fromOffset(self.size.X, self.size.Y),
+        Position = restorePosition,
+    })
+    tween(self.collapsedInteract, moveInfo, {
         Size = UDim2.fromOffset(self.size.X, self.size.Y),
         Position = restorePosition,
     })
@@ -1212,6 +1218,7 @@ function Window:Show()
         self.collapsedShell.BackgroundTransparency = 1
         self.collapsedShell.Visible = false
         self.collapsedFace.GroupTransparency = 1
+        self.collapsedInteract.Visible = false
         self.animating = false
     end)
 end
@@ -1266,6 +1273,8 @@ function Window:Hide()
     self.collapsedFace.GroupTransparency = 1
     self.collapsedInteract.Visible = true
     self.collapsedInteract.Active = true
+    self.collapsedInteract.Position = self.main.Position
+    self.collapsedInteract.Size = self.main.Size
 
     -- Gen2 fades the chrome while the surface itself moves into the top pill.
     tween(self.topbar, fadeInfo, { GroupTransparency = 1 })
@@ -1280,6 +1289,10 @@ function Window:Hide()
     end
 
     local movement = tween(self.collapsedShell, moveInfo, {
+        Size = collapsedSize,
+        Position = collapsedPosition,
+    })
+    tween(self.collapsedInteract, moveInfo, {
         Size = collapsedSize,
         Position = collapsedPosition,
     })
@@ -1302,6 +1315,9 @@ function Window:Hide()
         if self.destroyed or not self.hidden then return end
         self.collapsedShell.Position = collapsedPosition
         self.collapsedShell.Size = collapsedSize
+        self.collapsedInteract.Position = collapsedPosition
+        self.collapsedInteract.Size = collapsedSize
+        self.collapsedInteract.Visible = true
         self.collapsedShellCorner.CornerRadius = UDim.new(1, 0)
         self.collapsedInteract.Active = true
         self.animating = false
@@ -1649,15 +1665,15 @@ function Aether:CreateWindow(config)
         ZIndex = 212,
     })
 
-    -- Keep the restore hitbox OUTSIDE collapsedFace. collapsedFace is a CanvasGroup
-    -- whose transparency is animated during the morph; putting the button inside it
-    -- can leave the button behind the flattened CanvasGroup render/input layer.
-    -- A direct child of collapsedShell stays on top and remains clickable.
+    -- Keep the restore hitbox as a TOP-LEVEL sibling of the visual pill.
+    -- This avoids every CanvasGroup/clipping/input quirk inside the morph shell.
+    -- It mirrors the shell's position/size while hidden, but is never rendered.
     local collapsedInteract = create("TextButton", {
-        Parent = collapsedShell,
+        Parent = screen,
         Name = "CollapsedInteract",
-        Size = UDim2.fromScale(1, 1),
-        Position = UDim2.fromScale(0, 0),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0, 45),
+        Size = UDim2.fromOffset(185, 50),
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         Text = "",
@@ -1665,8 +1681,8 @@ function Aether:CreateWindow(config)
         AutoButtonColor = false,
         Active = true,
         Selectable = false,
-        Visible = true,
-        ZIndex = 1000,
+        Visible = false,
+        ZIndex = 10000,
     })
 
     local body = create("CanvasGroup", {
@@ -1938,27 +1954,90 @@ function Aether:CreateWindow(config)
     local collapsedMoved = false
     local collapsedStart = Vector2.zero
     local collapsedOffset = Vector2.zero
+    local collapsedAdjustment = Vector2.zero
+    local collapsedTouchInput = nil
 
-    registerConnection(window, collapsedInteract.InputBegan:Connect(function(input, processed)
-        if processed or window.animating or not window.hidden then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-            return
+    local function pointInside(gui, point)
+        local pos = gui.AbsolutePosition
+        local size = gui.AbsoluteSize
+        return point.X >= pos.X and point.X <= pos.X + size.X
+            and point.Y >= pos.Y and point.Y <= pos.Y + size.Y
+    end
+
+    local function findInputAdjustment(rawPoint)
+        -- GetMouseLocation/InputObject.Position can differ from ScreenGui coordinates
+        -- by the Roblox top-left GUI inset depending on the host/client. Try both.
+        local inset = Vector2.zero
+        pcall(function()
+            inset = GuiService:GetGuiInset()
+        end)
+
+        local candidates = {
+            Vector2.zero,
+            Vector2.new(-inset.X, -inset.Y),
+            inset,
+        }
+
+        for _, adjustment in ipairs(candidates) do
+            if pointInside(collapsedInteract, rawPoint + adjustment) then
+                return adjustment
+            end
         end
 
-        local point = Vector2.new(input.Position.X, input.Position.Y)
-        local center = collapsedShell.AbsolutePosition + collapsedShell.AbsoluteSize * collapsedShell.AnchorPoint
+        return nil
+    end
+
+    local function beginCollapsedPress(input)
+        if window.animating or not window.hidden or not collapsedInteract.Visible then return false end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+            return false
+        end
+
+        local rawPoint = Vector2.new(input.Position.X, input.Position.Y)
+        local adjustment = findInputAdjustment(rawPoint)
+        if not adjustment then return false end
+
+        local point = rawPoint + adjustment
+        local center = collapsedInteract.AbsolutePosition + collapsedInteract.AbsoluteSize * collapsedInteract.AnchorPoint
+
         collapsedStart = point
         collapsedOffset = center - point
+        collapsedAdjustment = adjustment
         collapsedDragging = true
         collapsedMoved = false
-    end))
+        collapsedTouchInput = input.UserInputType == Enum.UserInputType.Touch and input or nil
+        return true
+    end
 
-    -- Activated is more reliable here than MouseButton1Click and also supports
-    -- touch/gamepad. The drag path still wins if the pointer actually moved.
-    registerConnection(window, collapsedInteract.Activated:Connect(function()
-        if window.hidden and not window.animating and not collapsedMoved then
+    local function finishCollapsedPress()
+        if not collapsedDragging then return end
+        collapsedDragging = false
+        collapsedTouchInput = nil
+
+        if collapsedMoved then
+            window._collapsedPosition = collapsedShell.Position
+        elseif window.hidden and not window.animating then
             window:Show()
         end
+    end
+
+    -- Primary button path. Since the button is a direct ScreenGui child now,
+    -- this should work on ordinary mouse/touch input without relying on the shell.
+    registerConnection(window, collapsedInteract.InputBegan:Connect(function(input)
+        beginCollapsedPress(input)
+    end))
+
+    registerConnection(window, collapsedInteract.Activated:Connect(function()
+        if window.hidden and not window.animating and not collapsedMoved and not collapsedDragging then
+            window:Show()
+        end
+    end))
+
+    -- Fallback path: some injected/custom UI hosts fail to deliver GuiButton Activated.
+    -- Listen at UserInputService level and perform our own hit test against the pill.
+    registerConnection(window, UserInputService.InputBegan:Connect(function(input)
+        if collapsedDragging then return end
+        beginCollapsedPress(input)
     end))
 
     registerConnection(window, collapsedInteract.MouseEnter:Connect(function()
@@ -1981,31 +2060,37 @@ function Aether:CreateWindow(config)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
-        if not collapsedDragging then return end
-
-        collapsedDragging = false
-        if collapsedMoved then
-            window._collapsedPosition = collapsedShell.Position
-        elseif window.hidden and not window.animating then
-            window:Show()
+        if collapsedTouchInput and input.UserInputType == Enum.UserInputType.Touch and input ~= collapsedTouchInput then
+            return
         end
+        finishCollapsedPress()
     end))
 
     registerConnection(window, UserInputService.WindowFocusReleased:Connect(function()
         collapsedDragging = false
+        collapsedTouchInput = nil
     end))
 
     registerConnection(window, RunService.RenderStepped:Connect(function()
         if not collapsedDragging or not window.hidden or window.animating or window.destroyed then return end
 
-        local mouse = UserInputService:GetMouseLocation()
-        if not collapsedMoved and (mouse - collapsedStart).Magnitude < 5 then
+        local rawPoint
+        if collapsedTouchInput then
+            rawPoint = Vector2.new(collapsedTouchInput.Position.X, collapsedTouchInput.Position.Y)
+        else
+            rawPoint = UserInputService:GetMouseLocation()
+        end
+
+        local point = rawPoint + collapsedAdjustment
+        if not collapsedMoved and (point - collapsedStart).Magnitude < 5 then
             return
         end
 
         collapsedMoved = true
-        local target = mouse + collapsedOffset
-        collapsedShell.Position = UDim2.fromOffset(math.round(target.X), math.round(target.Y))
+        local target = point + collapsedOffset
+        local position = UDim2.fromOffset(math.round(target.X), math.round(target.Y))
+        collapsedShell.Position = position
+        collapsedInteract.Position = position
     end))
 
     local dragging = false
