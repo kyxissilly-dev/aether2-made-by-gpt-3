@@ -7,7 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local Aether = {}
 Aether.__index = Aether
-Aether.Version = "0.4.3"
+Aether.Version = "0.4.4"
 
 local DEFAULT = {
     Window = Color3.fromRGB(18, 18, 19),
@@ -1164,7 +1164,7 @@ function Window:Show()
     local chromeInfo = TweenInfo.new(0.28, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out)
     local collapsedFade = TweenInfo.new(0.15, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 
-    self.collapsedInteract.Active = false
+    self.collapsedInteract.Active = true
     tween(self.collapsedFace, collapsedFade, { GroupTransparency = 1 })
 
     local movement = tween(self.collapsedShell, moveInfo, {
@@ -1192,6 +1192,11 @@ function Window:Show()
         tween(self.main, chromeInfo, { GroupTransparency = 0 })
         tween(self.shadow, chromeInfo, { Transparency = 0.6 })
         tween(self.mainStroke, chromeInfo, { Transparency = 0.6 })
+        tween(self.collapsedShell, chromeInfo, { BackgroundTransparency = 1 })
+        tween(self.collapsedShellStroke, chromeInfo, { Transparency = 1 })
+        if self.collapsedShellShadow then
+            tween(self.collapsedShellShadow, chromeInfo, { Transparency = 1 })
+        end
     end)
 
     movement.Completed:Connect(function()
@@ -1204,7 +1209,7 @@ function Window:Show()
         self.mainCorner.CornerRadius = UDim.new(0, 18)
         self.clipCorner.CornerRadius = UDim.new(0, 18)
 
-        self.collapsedShell.GroupTransparency = 1
+        self.collapsedShell.BackgroundTransparency = 1
         self.collapsedShell.Visible = false
         self.collapsedFace.GroupTransparency = 1
         self.animating = false
@@ -1250,17 +1255,17 @@ function Window:Hide()
     self.collapsedShell.Visible = true
     self.collapsedShell.Position = self.main.Position
     self.collapsedShell.Size = self.main.Size
-    self.collapsedShell.GroupTransparency = 1
+    self.collapsedShell.BackgroundTransparency = 1
     self.collapsedShellCorner.CornerRadius = UDim.new(0, 18)
-    self.collapsedShellStroke.Transparency = 0.6
+    self.collapsedShellStroke.Transparency = 1
     if self.collapsedShellShadow then
-        self.collapsedShellShadow.Transparency = 0.6
+        self.collapsedShellShadow.Transparency = 1
     end
 
     self.collapsedFace.Visible = true
     self.collapsedFace.GroupTransparency = 1
     self.collapsedInteract.Visible = true
-    self.collapsedInteract.Active = false
+    self.collapsedInteract.Active = true
 
     -- Gen2 fades the chrome while the surface itself moves into the top pill.
     tween(self.topbar, fadeInfo, { GroupTransparency = 1 })
@@ -1268,7 +1273,11 @@ function Window:Hide()
     tween(self.mainStroke, fadeInfo, { Transparency = 1 })
     tween(self.shadow, fadeInfo, { Transparency = 1 })
     tween(self.main, fadeInfo, { GroupTransparency = 1 })
-    tween(self.collapsedShell, shellFadeInfo, { GroupTransparency = 0 })
+    tween(self.collapsedShell, shellFadeInfo, { BackgroundTransparency = 0 })
+    tween(self.collapsedShellStroke, shellFadeInfo, { Transparency = 0.6 })
+    if self.collapsedShellShadow then
+        tween(self.collapsedShellShadow, shellFadeInfo, { Transparency = 0.6 })
+    end
 
     local movement = tween(self.collapsedShell, moveInfo, {
         Size = collapsedSize,
@@ -1535,22 +1544,19 @@ function Aether:CreateWindow(config)
     -- Gen2-style collapsed restore pill. Keep this as its own top-level shell.
     -- This avoids CanvasGroup/clipping quirks where a collapsed face inside the
     -- main window can vanish together with the normal window contents.
-    local collapsedShell = create("CanvasGroup", {
+    local collapsedShell = create("Frame", {
         Parent = screen,
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.new(0.5, 0, 0, 45),
         Size = UDim2.fromOffset(185, 50),
         BackgroundColor3 = theme.Window,
-        BackgroundTransparency = 0,
+        BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ClipsDescendants = true,
-        GroupTransparency = 1,
+        Active = true,
         Visible = false,
         ZIndex = 200,
     })
-    pcall(function()
-        collapsedShell.Interactable = true
-    end)
     local collapsedShellCorner = corner(collapsedShell, 99)
     local collapsedShellStroke = stroke(collapsedShell, theme.Stroke, 0.6, 1)
     local collapsedShellShadow = glow(collapsedShell, theme.Shadow, 20, 0.6)
@@ -1573,7 +1579,7 @@ function Aether:CreateWindow(config)
         BorderSizePixel = 0,
         GroupTransparency = 1,
         Visible = true,
-        ZIndex = 201,
+        ZIndex = 210,
     })
 
     local collapsedIconHolder = create("Frame", {
@@ -1582,11 +1588,19 @@ function Aether:CreateWindow(config)
         Position = UDim2.new(0, 16, 0.5, 0),
         Size = UDim2.fromOffset(24, 24),
         BackgroundTransparency = 1,
-        ZIndex = 101,
+        ZIndex = 211,
     })
     local collapsedIcon = makeIcon(collapsedIconHolder, icon, theme.Text, 24, name)
     collapsedIcon.AnchorPoint = Vector2.new(0.5, 0.5)
     collapsedIcon.Position = UDim2.fromScale(0.5, 0.5)
+    if collapsedIcon:IsA("GuiObject") then
+        collapsedIcon.ZIndex = 212
+    end
+    for _, descendant in ipairs(collapsedIcon:GetDescendants()) do
+        if descendant:IsA("GuiObject") then
+            descendant.ZIndex = 212
+        end
+    end
 
     local collapsedText = create("Frame", {
         Parent = collapsedFace,
@@ -1594,7 +1608,7 @@ function Aether:CreateWindow(config)
         Position = UDim2.new(0, 50, 0.5, 0),
         Size = UDim2.new(1, -60, 0, 32),
         BackgroundTransparency = 1,
-        ZIndex = 101,
+        ZIndex = 211,
     })
 
     create("UIListLayout", {
@@ -1616,7 +1630,7 @@ function Aether:CreateWindow(config)
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Center,
         LayoutOrder = 1,
-        ZIndex = 102,
+        ZIndex = 212,
     })
 
     local collapsedSubtitle = create("TextLabel", {
@@ -1632,7 +1646,7 @@ function Aether:CreateWindow(config)
         TextXAlignment = Enum.TextXAlignment.Left,
         TextYAlignment = Enum.TextYAlignment.Center,
         LayoutOrder = 2,
-        ZIndex = 102,
+        ZIndex = 212,
     })
 
     -- Keep the restore hitbox OUTSIDE collapsedFace. collapsedFace is a CanvasGroup
@@ -1649,7 +1663,7 @@ function Aether:CreateWindow(config)
         Text = "",
         TextTransparency = 1,
         AutoButtonColor = false,
-        Active = false,
+        Active = true,
         Selectable = false,
         Visible = true,
         ZIndex = 1000,
